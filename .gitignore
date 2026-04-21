@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual env
+venv/
+eegenv/
+env/
+
+# Dataset – ignorer TOUT le dossier Dataset (brut)
+Dataset/
+data/
+*.mat
+*.txt
+*.csv
+*.xls
+*.locs
+*.m
+
+# macOS junk
+__MACOSX/
+.DS_Store
+
+# Outputs générés
+outputs_*/
+Preprocessing/outputs_processed/
+Augmentation/outputs_augmented/
+models/checkpoints/
+logs/
+*.npy
+*.h5
+*.pkl
+*.pt
+*.pth
+
+# Images générées
+*.png
+*.jpg
+*.jpeg
+*.pdf
+
+# Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Config sensibles
+config/.env
+*.secret
+
+# Mais garder requirements.txt
+!requirements.txt
