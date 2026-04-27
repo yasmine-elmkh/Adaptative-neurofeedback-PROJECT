@@ -31,6 +31,11 @@ import sys
 from pathlib import Path
 import numpy as np
 
+
+import traceback
+import sys
+
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -249,6 +254,14 @@ def visualize_all(sig_arith, sig_stroop):
 
     _plot_band_power(sig_arith, 'Arithmetic')
     _plot_band_power(sig_stroop, 'Stroop')
+
+
+print("Test de tracé simple...")
+plt.figure()
+plt.plot([0,1], [0,1])
+plt.savefig(OUT_DIR / "test.png")
+print("test.png créé, taille:", (OUT_DIR / "test.png").stat().st_size)
+
 
 
 def _plot_band_power(signals, task_name):

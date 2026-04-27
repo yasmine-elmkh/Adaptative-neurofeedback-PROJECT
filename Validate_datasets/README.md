@@ -98,21 +98,21 @@ High inter‑subject variability → justifies individual fine‑tuning after ca
 
 Integration with the Rest of the Project
 The validation outputs guide the preprocessing pipeline (Preprocessing/) and the augmentation pipeline (Augmentation/). Figures serve as traceable reference for reproducibility.
+```
 
-Authors
-Scripts & analysis: Yasmine El Mkhantar
-Supervisors: Monir El AZZOUZI, Loubna EL RHALI, Yassir MATRANE
-Project: NeuroCap – Easy Medical Device (2025–2026)
+## Authors Scripts & analysis: Yasmine El Mkhantar
+## Supervisors: Monir El AZZOUZI, Loubna EL RHALI, Yassir MATRANE
+### Project: NeuroCap – Easy Medical Device (2025–2026)
 
-License
+## License
 Code and documentation: MIT License.
 Datasets are subject to their own licenses (CC BY 4.0 for SAM40, specific terms for Cognitive Load dataset).
 
-version francais
-Vue d'ensemble
+# version francais
+## Vue d'ensemble
 Ce dossier contient la pipeline de validation des deux jeux de données EEG utilisés dans le projet NeuroCap. L’objectif est de vérifier l’intégrité, la qualité du signal et la compatibilité avec le matériel final (électrode active unique Fp2, référence M2, masse M1). La validation comprend l’extraction du canal Fp2, la détection d’artefacts, le calcul de métriques spectrales et la génération de figures de diagnostic.
 
-Datasets validés
+## Datasets validés
 Dataset	Référence	Sujets	Canaux (dont Fp2)	Fréquence	Tâches
 Concentration (Cognitive Load)	Nirabi et al., 2024	15	8	250 Hz	Arithmétique / Stroop (4 niveaux)
 Stress (SAM40)	Ghosh et al., 2021	40	32	128 Hz	Arithmétique / Stroop / Miroir (3 essais)
@@ -129,7 +129,7 @@ Suite de visualisation – séries temporelles, PSD (log/linéaire), histogramme
 
 Chargement des labels de stress depuis scales.xls (scores auto‑rapportés de 1 à 10)
 
-Structure du dossier
+## Structure du dossier
 text
 Validate_datasets/
 ├── outputs_concentration_fp2/      # Figures générées pour le dataset Concentration
@@ -200,11 +200,10 @@ Fenêtre de 500 ms compatible avec la latence < 500 ms imposée par le cahier de
 Intégration dans le reste du projet
 Les résultats de la validation guident la pipeline de prétraitement (Preprocessing/) et la pipeline d’augmentation (Augmentation/). Les figures servent de référence traçable pour la reproductibilité.
 
-Auteurs
-Scripts et analyses : Yasmine El Mkhantar
-Encadrement : Monir El AZZOUZI, Loubna EL RHALI, Yassir MATRANE
-Projet : NeuroCap – Easy Medical Device (2025–2026)
+## Auteurs Scripts et analyses : Yasmine El Mkhantar
+## Encadrement : Monir El AZZOUZI, Loubna EL RHALI, Yassir MATRANE
+### Projet : NeuroCap – Easy Medical Device (2025–2026)
 
-Licence
+## Licence
 Code et documentation : Licence MIT.
 Les datasets sont soumis à leurs propres licences (CC BY 4.0 pour SAM40, conditions spécifiques pour Cognitive Load).

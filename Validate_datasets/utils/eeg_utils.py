@@ -14,6 +14,9 @@ import matplotlib.pyplot as plt
 from scipy import signal
 from pathlib import Path
 
+import traceback
+import sys
+
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 

@@ -28,6 +28,11 @@ import sys
 from pathlib import Path
 import numpy as np
 
+
+import traceback
+import sys
+
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -339,6 +344,13 @@ def visualize_all(file_results, fp2_signals, fp2_250):
     _plot_resample_check(ts_128, ts_250)
     _plot_band_power(ts_128, FS_STRESS, suffix=f'128Hz_raw_{CH_LABEL.lower()}')
     _plot_band_power(ts_250, FS_TARGET, suffix=f'250Hz_resampled_{CH_LABEL.lower()}')
+
+
+print("Test de tracé simple...")
+plt.figure()
+plt.plot([0,1], [0,1])
+plt.savefig(OUT_DIR / "test.png")
+print("test.png créé, taille:", (OUT_DIR / "test.png").stat().st_size)
 
 
 def _plot_resample_check(ts_128, ts_250):
