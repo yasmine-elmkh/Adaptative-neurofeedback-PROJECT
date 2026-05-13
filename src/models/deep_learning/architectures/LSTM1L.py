@@ -1,0 +1,25 @@
+"""
+NeuroCap – LSTM_1L sur datasets augmentés (A, B, C, D, FULL) + LOSO
+LSTM unidirectionnel 1 couche 64 unités + pré-encodeur CNN (1000 → ~63 pas).
+"""
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import torch.nn as nn
+from DL_utils import N_CLASSES, CNNPreEncoder, dl_main
+
+class LSTM_1L(nn.Module):
+    """LSTM unidirectionnel 1 couche 64 unités avec CNNPreEncoder."""
+    def __init__(self, n_classes=N_CLASSES):
+        super().__init__()
+        self.pre_encoder = CNNPreEncoder(out_features=64)
+        self.rnn = nn.LSTM(64, 64, num_layers=1, batch_first=True)
+        self.fc = nn.Sequential(nn.Linear(64, 32), nn.ReLU(), nn.Dropout(0.5), nn.Linear(32, n_classes))
+    def forward(self, x):
+        x = self.pre_encoder(x)          # (B, 1, 1000) → (B, ~63, 64)
+        out, _ = self.rnn(x)             # (B, ~63, hidden)
+        return self.fc(out[:, -1, :])     # Dernier pas de temps
+
+if __name__ == "__main__":
+    dl_main("LSTM_1L", LSTM_1L)
