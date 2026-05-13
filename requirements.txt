@@ -1,0 +1,26 @@
+# Core scientific computing
+numpy>=1.24.0
+scipy>=1.10.0
+pandas>=2.0.0
+matplotlib>=3.7.0
+seaborn
+xgboost
+lightgbm
+# EEG specific
+pywavelets>=1.4.0          # DWT for artifact removal and augmentation
+openpyxl>=3.1.0            # reading scales.xls (Excel)
+h5py>=3.8.0                # optional: save datasets in HDF5 format
+
+# Machine learning (baselines and metrics)
+scikit-learn>=1.3.0
+
+# Deep learning (for later use – optional but recommended)
+#tensorflow>=2.13.0         # for EEGNet, TCN, etc.
+# If you prefer PyTorch, uncomment the following line instead:
+# torch>=2.0.0
+
+# Data augmentation (braindecode for noise injection, etc.)
+braindecode>=0.8.0         # optional: provides EEG-specific augmentations
+
+# Utilities (optional)
+tqdm>=4.65.0               # progress bars

@@ -1,0 +1,39 @@
+version: '3.9'
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: neurocap
+      POSTGRES_PASSWORD: neurocap_secret
+      POSTGRES_DB: neurocap
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+  backend:
+    build: ./Backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://neurocap:neurocap_secret@postgres:5432/neurocap
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET_KEY: secret-dev-key
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./Backend:/app
+  frontend:
+    build: ./Frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    volumes:
+      - ./Frontend/src:/app/src
+volumes:
+  pgdata:

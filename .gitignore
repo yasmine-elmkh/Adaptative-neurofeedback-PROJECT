@@ -32,6 +32,8 @@ logs/
 *.pkl
 *.pt
 *.pth
+*.joblib
+*.json
 
 # Images générées
 *.png
@@ -54,3 +56,4 @@ config/.env
 
 # Mais garder requirements.txt
 !requirements.txt
+!data
