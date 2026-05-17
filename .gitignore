@@ -49,8 +49,11 @@ logs/
 .idea/
 *.swp
 
-# Config sensibles
-config/.env
+# Config sensibles — NE JAMAIS committer les fichiers .env
+.env
+.env.*
+**/.env
+**/.env.*
 *.secret
 
 # Mais garder requirements.txt
