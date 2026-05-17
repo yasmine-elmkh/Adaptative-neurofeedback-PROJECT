@@ -147,6 +147,25 @@ server returns `WSFrame` JSON with concentration, stress, feedback, threshold, b
 
 ---
 
+## Security
+
+| Layer | Measure |
+|---|---|
+| **Secrets** | All credentials in `.env` — never committed. `.env.example` has placeholders only |
+| **Passwords** | Hashed with `bcrypt` (cost factor 12) before storage — plain text never persisted |
+| **JWT** | Access token: 60 min · Refresh token: 30 days · Signed with `SECRET_KEY` (HS256) |
+| **Service-role key** | `SUPABASE_SERVICE_ROLE_KEY` bypasses RLS — used only in server-side calls, never sent to frontend |
+| **CORS** | Strict origin whitelist in `middleware/security.py` — rejects unknown origins |
+| **Role guards** | `get_current_user` → `get_therapist_user` / `get_admin_user` FastAPI dependency chain on every protected route |
+| **Rate limiting** | Brute-force protection on `/auth/login` and `/auth/register` via middleware |
+| **Audit logs** | Admin-level mutations recorded in `audit_logs` table with user ID, action, and IP |
+| **Soft delete** | Users set to `is_active=false` — data preserved, account access revoked |
+| **Input validation** | All request bodies validated by Pydantic v2 with strict types and field constraints |
+
+> In production: set `SECRET_KEY` to `openssl rand -hex 32`, enable Supabase RLS policies, and run behind HTTPS.
+
+---
+
 ## Role access matrix
 
 | Route group | Patient | Therapist | Admin |
