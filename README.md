@@ -112,7 +112,24 @@ Classification: concentration / stress / rest
 Real-time feedback
 ```
 
-Best model: **CNN-LSTM + Attention** — 89.4% accuracy on merged Fp2 dataset.
+Models are still under evaluation — benchmarks will be published after full test-set validation.
+
+---
+
+## Security
+
+| Practice | Detail |
+|---|---|
+| **Secrets** | All credentials stored in `.env`, never committed to git |
+| **JWT** | Short-lived access tokens (60 min) + refresh tokens (30 days) |
+| **Passwords** | Hashed with bcrypt before storage, never stored in plain text |
+| **Service-role key** | `SUPABASE_SERVICE_ROLE_KEY` used server-side only, never exposed to frontend |
+| **CORS** | Strict origin whitelist configured in FastAPI middleware |
+| **Role guards** | Every protected route checks role via FastAPI `Depends` — no client-side enforcement |
+| **Soft delete** | Users are deactivated (`is_active=false`), not permanently erased |
+| **Audit logs** | Sensitive admin actions logged with timestamp, user ID, and IP address |
+
+> Change `SECRET_KEY` to a long random string before any production deployment (`openssl rand -hex 32`).
 
 ---
 
