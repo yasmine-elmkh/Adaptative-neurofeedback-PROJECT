@@ -1,0 +1,277 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   NEUROCAP — DESIGN SYSTEM TOKENS
+   CSS variables auto-switch via .dark class on <html>
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Light palette */
+  --nc-bg:       240 244 255;
+  --nc-surface:  255 255 255;
+  --nc-surface2: 248 250 255;
+  --nc-text:     15  23  42;
+  --nc-muted:    100 116 139;
+  --nc-accent:   2   132 199;
+  --nc-border:   226 232 240;
+  --nc-success:  22  163 74;
+  --nc-warning:  217 119 6;
+  --nc-danger:   220 38  38;
+
+  /* Gradient stops */
+  --grad-from: #e0f2fe;
+  --grad-to:   #f0f4ff;
+
+  /* Elevation shadows */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.10), 0 4px 8px rgba(0,0,0,0.06);
+
+  /* Focus ring */
+  --ring-accent: 0 0 0 3px rgba(2,132,199,0.3);
+
+  /* Transition */
+  --transition: 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dark {
+  /* Dark palette */
+  --nc-bg:       15  17  23;
+  --nc-surface:  26  31  46;
+  --nc-surface2: 33  40  64;
+  --nc-text:     226 232 240;
+  --nc-muted:    100 116 139;
+  --nc-accent:   0   212 255;
+  --nc-border:   42  54  84;
+  --nc-success:  34  197 94;
+  --nc-warning:  245 158 11;
+  --nc-danger:   239 68  68;
+
+  --grad-from: #0f1117;
+  --grad-to:   #1a1f2e;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
+
+  --ring-accent: 0 0 0 3px rgba(0,212,255,0.25);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BASE STYLES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@layer base {
+  * { box-sizing: border-box; }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-nc-bg text-nc-text transition-colors;
+    font-family: 'Inter', system-ui, sans-serif;
+    min-height: 100dvh;
+  }
+
+  /* Arabic font override */
+  [lang="ar"] body,
+  [dir="rtl"] body {
+    font-family: 'Cairo', system-ui, sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight text-nc-text;
+  }
+
+  /* Focus styles */
+  :focus-visible {
+    outline: none;
+    box-shadow: var(--ring-accent);
+    border-radius: 0.5rem;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--nc-border));
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--nc-muted));
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   COMPONENT LAYER
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@layer components {
+
+  /* ── Cards ─────────────────────────────────────────────────── */
+  .card {
+    @apply bg-nc-surface border border-nc-border rounded-2xl;
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow var(--transition), border-color var(--transition);
+  }
+
+  .card:hover {
+    box-shadow: var(--shadow-md);
+  }
+
+  .card-glass {
+    @apply rounded-2xl border border-nc-border;
+    background: rgb(var(--nc-surface) / 0.7);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: var(--shadow-md);
+  }
+
+  /* ── Buttons ─────────────────────────────────────────────────── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5
+           text-sm font-medium rounded-xl cursor-pointer select-none
+           transition-all focus-visible:outline-none;
+    transition-duration: 150ms;
+  }
+
+  .btn:disabled {
+    @apply opacity-50 pointer-events-none;
+  }
+
+  .btn-primary {
+    @apply btn text-white;
+    background: linear-gradient(135deg, rgb(var(--nc-accent)), rgb(var(--nc-accent) / 0.8));
+    box-shadow: 0 2px 8px rgb(var(--nc-accent) / 0.35);
+  }
+
+  .btn-primary:hover {
+    box-shadow: 0 4px 16px rgb(var(--nc-accent) / 0.5);
+    filter: brightness(1.1);
+  }
+
+  .btn-secondary {
+    @apply btn bg-nc-surface2 text-nc-text border border-nc-border;
+  }
+
+  .btn-secondary:hover {
+    @apply bg-nc-surface border-nc-accent/40;
+  }
+
+  .btn-ghost {
+    @apply btn text-nc-muted;
+  }
+
+  .btn-ghost:hover {
+    @apply bg-nc-surface2 text-nc-text;
+  }
+
+  .btn-danger {
+    @apply btn text-white bg-nc-danger;
+    box-shadow: 0 2px 8px rgb(var(--nc-danger) / 0.35);
+  }
+
+  /* ── Form inputs ─────────────────────────────────────────────── */
+  .input {
+    @apply w-full px-4 py-2.5 rounded-xl bg-nc-surface2 border border-nc-border
+           text-nc-text placeholder:text-nc-muted text-sm
+           transition-all;
+    outline: none;
+  }
+
+  .input:focus {
+    border-color: rgb(var(--nc-accent));
+    box-shadow: var(--ring-accent);
+  }
+
+  .input-icon {
+    @apply input ps-10;
+  }
+
+  .label {
+    @apply block text-sm font-medium text-nc-muted mb-1.5;
+  }
+
+  /* ── Badge ──────────────────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2.5 py-1
+           text-xs font-semibold rounded-full;
+  }
+
+  .badge-accent  { @apply badge bg-nc-accent/15 text-nc-accent; }
+  .badge-success { @apply badge bg-nc-success/15 text-nc-success; }
+  .badge-warning { @apply badge bg-nc-warning/15 text-nc-warning; }
+  .badge-danger  { @apply badge bg-nc-danger/15 text-nc-danger; }
+  .badge-muted   { @apply badge bg-nc-surface2 text-nc-muted; }
+
+  /* ── Stat card ──────────────────────────────────────────────── */
+  .stat-card {
+    @apply card p-5 flex flex-col gap-3;
+  }
+
+  /* ── Section title ──────────────────────────────────────────── */
+  .section-title {
+    @apply text-xs font-semibold uppercase tracking-widest text-nc-muted flex items-center gap-2;
+  }
+
+  /* ── Divider ────────────────────────────────────────────────── */
+  .divider {
+    @apply h-px bg-nc-border w-full my-4;
+  }
+
+  /* ── Legacy glass-card (backward compat) ───────────────────── */
+  .glass-card {
+    @apply bg-neuro-surface/50 backdrop-blur-sm border border-neuro-border rounded-2xl;
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RTL SUPPORT
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+[dir="rtl"] {
+  text-align: right;
+}
+
+[dir="rtl"] .ltr-only {
+  direction: ltr;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TRANSITIONS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.theme-transition,
+.theme-transition *,
+.theme-transition *::before,
+.theme-transition *::after {
+  transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PAGE BACKGROUND GRADIENT
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.page-bg {
+  background: linear-gradient(135deg, var(--grad-from) 0%, var(--grad-to) 100%);
+  min-height: 100dvh;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   NEUROFEEDBACK GAUGE ANIMATION
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@keyframes strokeDraw {
+  from { stroke-dashoffset: 283; }
+  to   { stroke-dashoffset: 0; }
+}
+
+.gauge-arc {
+  animation: strokeDraw 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}

@@ -1,0 +1,235 @@
+import { useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import { useTheme } from '../context/ThemeContext'
+import { useAuthStore } from '../stores'
+import { Brain, Mail, Lock, UserPlus, User, Sun, Moon, Monitor, Globe, ChevronDown } from 'lucide-react'
+
+const THEMES = [
+  { key: 'auto',  Icon: Monitor },
+  { key: 'light', Icon: Sun },
+  { key: 'dark',  Icon: Moon },
+]
+const LANGS = [
+  { key: 'fr', label: 'FR', flag: '🇫🇷' },
+  { key: 'en', label: 'EN', flag: '🇬🇧' },
+  { key: 'ar', label: 'AR', flag: '🇲🇦' },
+]
+
+function AuthTopBar() {
+  const { theme, setTheme } = useTheme()
+  const { i18n } = useTranslation()
+  const [langOpen, setLangOpen] = useState(false)
+  const ThemeIcon = THEMES.find((t) => t.key === theme)?.Icon ?? Monitor
+  const cycleTheme = () => {
+    const idx = THEMES.findIndex((t) => t.key === theme)
+    setTheme(THEMES[(idx + 1) % THEMES.length].key)
+  }
+  return (
+    <div className="absolute top-4 end-4 z-20 flex items-center gap-2">
+      <button onClick={cycleTheme}
+              className="p-2 rounded-xl bg-nc-surface/70 border border-nc-border text-nc-muted hover:text-nc-accent backdrop-blur-sm transition-all">
+        <ThemeIcon className="w-4 h-4" />
+      </button>
+      <div className="relative">
+        <button onClick={() => setLangOpen((o) => !o)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-nc-surface/70 border border-nc-border text-nc-muted hover:text-nc-accent backdrop-blur-sm transition-all">
+          <Globe className="w-4 h-4" />
+          <span className="text-xs font-semibold uppercase">{i18n.language}</span>
+          <ChevronDown className="w-3 h-3" />
+        </button>
+        {langOpen && (
+          <div className="absolute top-full mt-2 end-0 bg-nc-surface border border-nc-border rounded-2xl shadow-glass-lg overflow-hidden z-30 animate-fade-in">
+            {LANGS.map(({ key, label, flag }) => (
+              <button key={key} onClick={() => { i18n.changeLanguage(key); setLangOpen(false) }}
+                      className={`flex items-center gap-3 w-full px-4 py-2.5 text-sm transition-colors
+                                  ${i18n.language === key ? 'text-nc-accent bg-nc-accent/10 font-semibold' : 'text-nc-text hover:bg-nc-surface2'}`}>
+                <span>{flag}</span>{label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export default function Register() {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const register = useAuthStore((s) => s.register)
+  const [firstName, setFirstName] = useState('')
+  const [lastName,  setLastName]  = useState('')
+  const [email,    setEmail]      = useState('')
+  const [password, setPassword]   = useState('')
+  const [confirm,  setConfirm]    = useState('')
+  const [error,    setError]      = useState('')
+  const [loading,  setLoading]    = useState(false)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (password !== confirm) return setError(t('auth.register.error_mismatch'))
+    setError('')
+    setLoading(true)
+    try {
+      await register(email, password, firstName, lastName)
+      navigate('/dashboard')
+    } catch (err) {
+      setError(err.message || t('auth.register.error_generic'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="flex min-h-screen bg-nc-bg">
+
+      {/* ── Left: Auth form ─────────────────────────────────────── */}
+      <div className="relative flex items-center justify-center w-full lg:w-1/2 min-h-screen overflow-hidden">
+        <AuthTopBar />
+
+        {/* Background decorations */}
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute -top-40 -end-40 w-[600px] h-[600px] rounded-full"
+               style={{ background: 'radial-gradient(circle, rgb(var(--nc-accent)/0.12) 0%, transparent 70%)' }} />
+          <div className="absolute -bottom-40 -start-40 w-[500px] h-[500px] rounded-full"
+               style={{ background: 'radial-gradient(circle, rgb(var(--nc-accent)/0.08) 0%, transparent 70%)' }} />
+        </div>
+
+        {/* Card */}
+        <div className="relative z-10 w-full max-w-[420px] px-4 py-10 animate-slide-up">
+          <div className="card p-8 space-y-6">
+
+            {/* Logo */}
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
+                   style={{ background: 'linear-gradient(135deg, rgb(var(--nc-accent)), rgb(var(--nc-accent)/0.5))' }}>
+                <Brain className="w-7 h-7 text-white" />
+              </div>
+              <div className="text-center">
+                <h1 className="text-2xl font-bold text-nc-text">{t('auth.register.title')}</h1>
+                <p className="text-sm text-nc-muted mt-1">{t('auth.register.subtitle')}</p>
+              </div>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="space-y-4">
+
+              {/* First + Last name */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">{t('auth.register.first_name')}</label>
+                  <div className="relative">
+                    <User className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-nc-muted pointer-events-none" />
+                    <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)}
+                           placeholder={t('auth.register.first_name_placeholder')}
+                           className="input input-icon" required autoComplete="given-name" />
+                  </div>
+                </div>
+                <div>
+                  <label className="label">{t('auth.register.last_name')}</label>
+                  <div className="relative">
+                    <User className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-nc-muted pointer-events-none" />
+                    <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)}
+                           placeholder={t('auth.register.last_name_placeholder')}
+                           className="input input-icon" required autoComplete="family-name" />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="label">{t('auth.register.email')}</label>
+                <div className="relative">
+                  <Mail className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-nc-muted pointer-events-none" />
+                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                         placeholder={t('auth.register.email_placeholder')}
+                         className="input input-icon" required autoComplete="email" />
+                </div>
+              </div>
+
+              <div>
+                <label className="label">{t('auth.register.password')}</label>
+                <div className="relative">
+                  <Lock className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-nc-muted pointer-events-none" />
+                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                         placeholder={t('auth.register.password_placeholder')}
+                         className="input input-icon" required minLength={6} autoComplete="new-password" />
+                </div>
+                <p className="text-xs text-nc-muted mt-1">{t('auth.register.password_hint')}</p>
+              </div>
+
+              <div>
+                <label className="label">{t('auth.register.confirm')}</label>
+                <div className="relative">
+                  <Lock className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-nc-muted pointer-events-none" />
+                  <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)}
+                         placeholder={t('auth.register.confirm_placeholder')}
+                         className="input input-icon" required autoComplete="new-password" />
+                </div>
+              </div>
+
+              {error && (
+                <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-nc-danger/10 border border-nc-danger/20 text-nc-danger text-sm">
+                  {error}
+                </div>
+              )}
+
+              <button type="submit" disabled={loading} className="btn-primary w-full mt-2">
+                {loading ? (
+                  <span className="flex items-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    {t('auth.register.loading')}
+                  </span>
+                ) : (
+                  <>
+                    <UserPlus className="w-4 h-4" />
+                    {t('auth.register.submit')}
+                  </>
+                )}
+              </button>
+            </form>
+
+            <p className="text-center text-sm text-nc-muted">
+              {t('auth.register.already')}{' '}
+              <Link to="/login" className="text-nc-accent hover:underline font-medium">
+                {t('auth.register.sign_in')}
+              </Link>
+            </p>
+          </div>
+
+          <p className="text-center text-xs text-nc-muted/60 mt-4">NeuroCap · Easy Medical Device · 2026</p>
+        </div>
+      </div>
+
+      {/* ── Right: Brain video ──────────────────────────────────── */}
+      <div className="hidden lg:block relative w-1/2 overflow-hidden">
+        {/* Video */}
+        <video
+          src="/video/Brain.mp4"
+          autoPlay
+          muted
+          loop
+          playsInline
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+
+        {/* Dark overlay */}
+        <div className="absolute inset-0 bg-black/40" />
+
+        {/* Left-edge fade to blend with form panel */}
+        <div className="absolute inset-y-0 start-0 w-24 z-10"
+             style={{ background: 'linear-gradient(to right, rgb(var(--nc-bg)), transparent)' }} />
+
+        {/* Branding overlay */}
+        <div className="absolute inset-0 z-10 flex flex-col justify-end p-10">
+          <div className="space-y-2">
+            <p className="text-white/90 text-3xl font-bold tracking-tight">{t('app.name')}</p>
+            <p className="text-white/60 text-base">{t('app.tagline')}</p>
+            <p className="text-white/40 text-sm">{t('app.company')}</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  )
+}
