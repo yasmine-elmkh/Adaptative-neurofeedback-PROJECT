@@ -1,0 +1,87 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NeuroCap — Docker Compose (backend + Redis)
+# Base de données : Supabase PostgreSQL (externe — pas de conteneur local)
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── API FastAPI ─────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ../app/Backend
+      dockerfile: Dockerfile
+    container_name: neurocap-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Supabase PostgreSQL (remplir les valeurs réelles)
+      DATABASE_URL: ${DATABASE_URL}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      # Sécurité
+      SECRET_KEY: ${SECRET_KEY}
+      # Redis
+      REDIS_URL: redis://redis:6379
+      # LLM
+      LLM_MODEL: ${LLM_MODEL:-mistral}
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      # Env
+      DEBUG: ${DEBUG:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../models:/app/models:ro        # modèles ML pré-entraînés (read-only)
+      - neurocap-kb:/app/knowledge_base  # base de connaissances RAG persistante
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Redis (cache intra-session) ─────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: neurocap-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Ollama LLM local (optionnel) ────────────────────────────────────────────
+  # Décommentez si vous voulez exécuter le LLM localement dans Docker.
+  # Attention : nécessite ~5 GB de RAM pour mistral.
+  #
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: neurocap-ollama
+  #   restart: unless-stopped
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama-models:/root/.ollama
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
+
+# ── Volumes persistants ───────────────────────────────────────────────────────
+volumes:
+  redis-data:
+  neurocap-kb:
+  # ollama-models:
