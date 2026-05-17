@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import torch, torch.nn as nn
 from DL_utils import N_CLASSES, dl_main
 
-class CNN_LSTM(nn.Module):
+class CNN_LSTM_Att(nn.Module):
     """CNN encoder → BiLSTM + Attention. Le CNN réduit la séquence AVANT le LSTM."""
     def __init__(self, n_classes=N_CLASSES, hidden_size=64):
         super().__init__()
@@ -27,4 +27,4 @@ class CNN_LSTM(nn.Module):
         return self.fc(context)
 
 if __name__ == '__main__':
-    dl_main("CNN_LSTM", CNN_LSTM)
+    dl_main("CNN_LSTM_Att", CNN_LSTM_Att)

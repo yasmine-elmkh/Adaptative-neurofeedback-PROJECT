@@ -47,7 +47,7 @@ DIAG_DIR = PROJECT_ROOT / "reports" / "deep_learning" / "diagnostic_confound"
 DIAG_DIR.mkdir(parents=True, exist_ok=True)
 
 ALL_MODELS = [
-    "CNN1D", "CNN2D", "CNN3D", "EEGNet", "TCN", "CNN_LSTM",
+    "CNN1D", "CNN2D", "CNN3D", "EEGNet", "TCN", "CNN_LSTM", "CNN_GRU" ,
     "LSTM_1L", "LSTM_2L", "BiLSTM_1L", "BiLSTM_2L",
     "GRU_1L", "GRU_2L", "BiGRU_1L", "BiGRU_2L",
     "LSTM_Att", "BiLSTM_Att", "GRU_Att", "BiGRU_Att",
