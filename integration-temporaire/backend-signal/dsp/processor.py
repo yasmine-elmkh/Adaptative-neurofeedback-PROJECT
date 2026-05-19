@@ -20,9 +20,21 @@ import numpy as np
 from scipy.signal import welch
 from collections  import deque
 
-from .epochs    import EpochExtractor
-from .artifacts import ContactQualityEstimator
+from .epochs       import EpochExtractor
+from .artifacts    import ContactQualityEstimator
 from utils.constants import FS
+
+# Classifieur ML (LightGBM entraîné LOSO) — chargement optionnel
+_ml_clf = None
+try:
+    from .ml_classifier import MLClassifier
+    _ml_clf = MLClassifier()
+except Exception as _e:
+    import logging as _logging
+    _logging.getLogger("NeuroCap").warning(
+        f"[Processor] MLClassifier non chargé ({_e}). "
+        "Classification ML désactivée — Z-score uniquement."
+    )
 
 # Bandes v8.0 pour le Welch temps réel
 _BANDS_RT = {
@@ -250,6 +262,8 @@ class RealTimeProcessor:
         # 6. Mise à jour classification si époque acceptée
         if epoch_result is not None and epoch_result.get("type") == "epoch":
             feat = epoch_result.get("features", {})
+
+            # 6a. Classification Z-score (intra-sujet, toujours active)
             bands_rel = {
                 k: feat.get(f"rel_{k}", 0.0)
                 for k in ["delta", "theta", "alpha", "beta", "beta_high", "gamma_low"]
@@ -259,6 +273,13 @@ class RealTimeProcessor:
                 self._cqe_score,
                 feat.get("emg_ratio", 0.0)
             )
+
+            # 6b. Classification ML — LightGBM FeatEng (LOSO)
+            # ml_features est calculé par epochs.py sur l'époque z-scorée.
+            if _ml_clf is not None:
+                ml_feats = epoch_result.get("ml_features")
+                if ml_feats:
+                    epoch_result["ml_prediction"] = _ml_clf.predict_from_dict(ml_feats)
 
         return flt, epoch_result
 
