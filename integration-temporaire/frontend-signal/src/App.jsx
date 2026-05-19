@@ -16,16 +16,18 @@ import axios from 'axios'
 import { useWebSocket } from './hooks/useWebSocket.js'
 import { useRecording } from './hooks/useRecording.js'
 
-import SignalCanvas   from './components/SignalCanvas.jsx'
-import BatteryIndicator from './components/BatteryIndicator.jsx'
-import BandBars       from './components/BandBars.jsx'
-import FeaturesPanel  from './components/FeaturesPanel.jsx'
-import EpochHistory   from './components/EpochHistory.jsx'
-import Sidebar        from './components/Sidebar.jsx'
+import SignalCanvas      from './components/SignalCanvas.jsx'
+import BatteryIndicator  from './components/BatteryIndicator.jsx'
+import BandBars          from './components/BandBars.jsx'
+import FeaturesPanel     from './components/FeaturesPanel.jsx'
+import EpochHistory      from './components/EpochHistory.jsx'
+import Sidebar           from './components/Sidebar.jsx'
+import MLClassifierCard  from './components/MLClassifierCard.jsx'
+import FileAnalysisTab   from './components/FileAnalysisTab.jsx'
 import Toast, { useToast } from './components/Toast.jsx'
 
-const API  = '/api'   // proxy Vite → http://localhost:8000/api
-const TABS = ['LIVE SIGNAL', 'FEATURES', 'HISTORIQUE', 'RAPPORT']
+const API  = '/api'   // proxy Vite → http://localhost:8765/api
+const TABS = ['LIVE SIGNAL', 'FEATURES', 'HISTORIQUE', 'RAPPORT', 'ANALYSE FICHIER']
 
 const f3 = v => typeof v === 'number' ? v.toFixed(3) : '—'
 const f4 = v => typeof v === 'number' ? v.toFixed(4) : '—'
@@ -98,7 +100,7 @@ function MetricCard({ label, value, unit, warn, accent }) {
 
 // ─── APP ──────────────────────────────────────────────────────────────────
 
-export default function App() {
+export default function App({ onBack } = {}) {
   const [tab, setTab] = useState(0)
 
   // Connexion
@@ -121,6 +123,9 @@ export default function App() {
   const [electrodeOk,  setElectrodeOk]  = useState(false)
   const [fp2Connected, setFp2Connected] = useState(false)
   const [m2Connected,  setM2Connected]  = useState(false)
+
+  // Classification ML
+  const [mlPrediction,  setMlPrediction]  = useState(null)
 
   // Époques
   const [epochs,        setEpochs]        = useState([])
@@ -191,9 +196,13 @@ export default function App() {
         setCurrentEpoch(d)
         setEpochCount(d.stats?.accepted   ?? 0)
         setRejectedCount(d.stats?.rejected ?? 0)
+        if (d.ml_prediction) setMlPrediction(d.ml_prediction)
         setEpochs(prev => {
-          const next = [...prev, { idx:d.epoch_idx, timestamp:d.timestamp,
-                                   features:d.features, graph:d.graph, rejected:false }]
+          const next = [...prev, {
+            idx: d.epoch_idx, timestamp: d.timestamp,
+            features: d.features, graph: d.graph, rejected: false,
+            ml_prediction: d.ml_prediction ?? null,
+          }]
           return next.length > 60 ? next.slice(-60) : next
         })
         break
@@ -226,7 +235,7 @@ export default function App() {
 
   // ── WebSocket ──
   const { send, connect: wsConnect, disconnect: wsDisconnect } = useWebSocket(
-    'ws://localhost:8000/ws',
+    'ws://localhost:8765/ws',
     { onOpen:()=>setWsConnected(true), onClose:()=>setWsConnected(false), onMessage:handleMessage }
   )
 
@@ -318,6 +327,12 @@ export default function App() {
           <span className={`q-badge q-${qi.cls}`}>{qi.label}</span>
           <Sep />
           <Btn onClick={handleExportCSV}>⬇ CSV</Btn>
+          {onBack && (
+            <>
+              <Sep />
+              <Btn onClick={onBack}>← Accueil</Btn>
+            </>
+          )}
         </div>
       </header>
 
@@ -431,6 +446,9 @@ export default function App() {
                 <MetricCard label="PAC θ→γ"      value={f4(feat.pac_theta_gamma)} accent={feat.pac_theta_gamma>0.3} />
               </div>
 
+              {/* ── Classifieur ML ── */}
+              <MLClassifierCard prediction={mlPrediction} />
+
               {/* Features rapides */}
               {currentEpoch ? (
                 <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
@@ -535,6 +553,13 @@ export default function App() {
                       ['Focus moyen',        f3(focus)],
                       ['Stress moyen β/α',   f3(stress), false, stress>2],
                       ['Baseline',           baselineOk?'✓ Calculée':'— Non calculée', baselineOk],
+                      ['── ML Classifieur ──', ''],
+                      ['État ML (dernier)',   mlPrediction ? (mlPrediction.uncertain ? '⚠ Incertain' : mlPrediction.state?.toUpperCase() || '—') : '—', mlPrediction && !mlPrediction.uncertain && mlPrediction.state==='concentration', mlPrediction && !mlPrediction.uncertain && mlPrediction.state==='stress'],
+                      ['Concentration ML',   mlPrediction ? f1(mlPrediction.concentration*100,'%') : '—', mlPrediction?.state==='concentration'],
+                      ['Stress ML',          mlPrediction ? f1(mlPrediction.stress*100,'%')        : '—', false, mlPrediction?.state==='stress'],
+                      ['Confiance',          mlPrediction ? f1(mlPrediction.confidence*100,'%')    : '—', mlPrediction?.confidence>=0.6, mlPrediction?.uncertain],
+                      ['Mode',               mlPrediction?.mode || '—'],
+                      ['── Signal ──', ''],
                       ['PAC θ→γ',            f4(feat.pac_theta_gamma)],
                       ['FD global',          f4(feat.fractal_dim)],
                       ['SEF95',              f1(feat.sef95,'Hz')],
@@ -563,6 +588,11 @@ export default function App() {
                 </>
               )}
             </div>
+          )}
+
+          {/* ══ TAB 4 — ANALYSE FICHIER ══ */}
+          {tab === 4 && (
+            <FileAnalysisTab />
           )}
 
         </main>
