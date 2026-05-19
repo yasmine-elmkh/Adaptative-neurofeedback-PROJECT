@@ -379,3 +379,220 @@ EPOCH_SAMP = 500  # samples par époque
 - **Baseline** : obligatoire pour activer la classification Z-score. Durée minimale : 10 époques propres (~40 s).
 - **CQE** : score de qualité 0-100. En dessous de 60, l'état est forcé à `invalid`.
 - **Thread safety** : `sample_queue` est thread-safe. Les callbacks WiFi/TCP utilisent `asyncio.run_coroutine_threadsafe` pour broadcaster vers le WebSocket.
+
+---
+
+## Classifieur ML LightGBM — Ajout v7.3
+
+> Documentation complète de l'évolution 15 → 63 features : [`dsp/FEATURE_ENGINEERING_63.md`](dsp/FEATURE_ENGINEERING_63.md)
+
+### Évolution du vecteur de features : 15 → 63
+
+| Aspect | Avant — 15 features | Maintenant — 63 features |
+|--------|---------------------|--------------------------|
+| Spectral | 6 puissances relatives (bandes v8.0) | 5 puissances absolues Welch (bandes entraînement) |
+| Ratios | 4 ratios cognitifs | 5 ratios cognitifs (+ TAR p<0.001) |
+| Temporel | 3 Hjorth | 6 (Hjorth + Power + MeanAmp + ZCR) |
+| Multi-résolution | aucun | 20 DWT db4 niveau 4 (5 sous-bandes × 4 stats) |
+| Textural | 0 | 16 (NeuroFeat 2025 — skewness/kurtosis/IQR/RMS) |
+| Non-linéaire | spectral_entropy + HFD seulement | ApEn + SampEn + PermEn + SpectralEn + HFD |
+| Dynamique | 0 | 6 transition patterns (QuadTPat 2024) |
+| Classification | Z-scores heuristiques, seuils arbitraires | LightGBM, validation LOSO |
+| Normalisation | aucune | z-score par époque + StandardScaler entraînement |
+
+Les 15 features d'avant étaient les features du **dashboard DSP v8.0** (bandes theta 6–8 Hz, delta 1–4 Hz). Le LightGBM a été entraîné sur les **63 features FeatEng** (bandes standard θ 4–8, δ 0.5–4), extraites sur des époques z-scorées. Ces deux pipelines coexistent : l'un alimente le dashboard en temps réel, l'autre alimente le classifieur.
+
+### Vue d'ensemble
+
+À chaque époque acceptée, le backend extrait maintenant **63 features FeatEng** et les soumet au modèle LightGBM entraîné (validation LOSO) pour prédire l'état cognitif du patient : **Concentration** ou **Stress**.
+
+```
+raw_epoch (1000 samples)
+    │
+    ├─► [DSP existant] filter_epoch() → filtered (1000 floats)
+    │
+    ├─► z-score normalization → epoch_z
+    │
+    ├─► feature_eng.extract_all_features(epoch_z) → 63 features dict
+    │
+    └─► MLClassifier.predict_from_dict(ml_features) → ml_prediction dict
+              │
+              └─► WS broadcast { ml_features, ml_prediction }
+```
+
+### Nouveau fichier : `dsp/ml_classifier.py`
+
+Module de classification ML temps réel. Charge et expose le modèle LightGBM FeatEng.
+
+**Classe `MLClassifier`** :
+
+| Méthode | Description |
+|---|---|
+| `__init__()` | Charge `LightGBM_concentration_vs_stress.joblib` + `LightGBM_scaler.joblib` depuis `models/baseline_FeatEng/baseline_models/` |
+| `predict_from_dict(ml_features: dict) → dict` | Aligne les 63 features dans l'ordre canonique du modèle, applique le StandardScaler, retourne les probabilités + état + confiance |
+
+**Format de sortie `ml_prediction` :**
+
+```json
+{
+  "concentration": 0.8342,
+  "stress":        0.1658,
+  "state":         "concentration",
+  "confidence":    0.8342,
+  "uncertain":     false
+}
+```
+
+- `uncertain = true` si `confidence < 0.60` (seuil CdC NeuroCap §2.5.1)
+- Aucun fallback Baseline — le modèle FeatEng est le seul utilisé
+
+**Constantes :**
+
+```python
+CONFIDENCE_THR = 0.60   # seuil d'incertitude
+_MODEL_DIR     = Path("../../models/baseline_FeatEng/baseline_models")
+_MODEL_FILE    = "LightGBM_concentration_vs_stress.joblib"
+_SCALER_FILE   = "LightGBM_scaler.joblib"
+```
+
+### Les 63 features FeatEng — 7 catégories
+
+```
+Epoch filtrée (1000 éch. @ 250 Hz) → z-score → extract_all_features()
+  │
+  ├── Cat. 1 — PSD Welch (5)        Pd, Pt, Pa, Pb, Pg
+  ├── Cat. 2 — Ratios cognitifs (5) TBR, ABR, EI, TAR, RelEnergy_beta
+  ├── Cat. 3 — Hjorth+temp. (6)     Activity, Mobility, Complexity, Power, MeanAmp, ZCR
+  ├── Cat. 4 — DWT db4 niv.4 (20)  5 sous-bandes × {mean, std, energy, entropy_shannon}
+  ├── Cat. 5 — Texturales (16)      skewness, kurtosis, IQR, RMS, peak_to_peak, crest_factor
+  │                                  + dwt_Xband_skew / dwt_Xband_kurt (5 sous-bandes × 2)
+  ├── Cat. 6 — Non-linéaires (5)    ApEn, SampEn, PermEn, SpectralEn, HFD (Higuchi kmax=10)
+  └── Cat. 7 — Transitions (6)      pct_up, pct_down, pct_flat, up_streak, down_streak, trans_freq
+                                     (inspiré QuadTPat, Sci. Rep. 2024)
+                                    ─────────────────────────────────────
+                             TOTAL : 63 features  |  < 40 ms/époque
+```
+
+**Pourquoi z-scorer l'époque avant extraction ?**  
+Les données d'entraînement ont été z-scorées époque par époque avant l'extraction des features. Appliquer le même z-score en inférence aligne la distribution et garantit la cohérence avec le StandardScaler du modèle.
+
+**Pourquoi DWT db4 niveau 4 ?**  
+L'article "Multiresolution Analysis in EEG Feature Engineering" (2018) montre que DWT-db4 + SVM surpasse db2, db6 et les MFCC. Les coefficients DWT capturent la structure temps-fréquence là où la PSD Welch n'a qu'une résolution fréquentielle uniforme.
+
+**Pourquoi les entropies (Cat. 6) ?**  
+Un signal de concentration est plus régulier (oscillations beta stables) → ApEn/SampEn/PermEn basses. Un signal de stress est plus irrégulier (activité beta haute fréquence chaotique) → entropies hautes. Ces mesures capturent ce que la puissance spectrale ne voit pas.
+
+### Modifications `dsp/epochs.py`
+
+Après l'extraction des 27 features v8.0, une extraction parallèle de 63 features FeatEng est ajoutée :
+
+```python
+# 1. Z-score de l'époque filtrée
+_std = float(np.std(filtered))
+if _std > 1e-10:
+    _epoch_z   = (filtered - np.mean(filtered)) / _std
+    ml_features = _extract_feateng(_epoch_z)   # → dict 63 clés
+
+# 2. Ajout dans le dict retourné par _process()
+result["epoch_filtered"] = filtered.tolist()   # 1000 floats (non broadcasté)
+result["ml_features"]    = ml_features         # 63 features pour le classifieur
+```
+
+Les 63 features FeatEng utilisent les bandes d'entraînement originales :
+
+| Bande | Plage (FeatEng) | vs v8.0 |
+|---|---|---|
+| delta | 0.5–4 Hz | HP 0.5 Hz au lieu de 1 Hz |
+| theta | 4–8 Hz | 4–6 Hz inclus (EOG accepté) |
+| gamma | 30–40 Hz | LP 40 Hz au lieu de 45 Hz |
+
+Cette différence mineure est acceptable — le filtre Golden Filter (zero-phase) du backend fournit un signal équivalent au pipeline d'entraînement.
+
+### Modifications `dsp/processor.py`
+
+Étape 6b ajoutée dans `_process_epoch()` après les features v8.0 :
+
+```python
+# Étape 6b — Prédiction ML FeatEng (LightGBM)
+if _ml_clf is not None:
+    ml_feats = epoch_result.get("ml_features")
+    if ml_feats:
+        epoch_result["ml_prediction"] = _ml_clf.predict_from_dict(ml_feats)
+```
+
+Le classifieur est instancié une seule fois au démarrage du module (`_ml_clf = MLClassifier()`). Si le chargement échoue (modèle absent), une `warning` est loggée et `ml_prediction` n'est pas ajouté aux époques.
+
+### Modifications `api.py`
+
+Le champ `epoch_filtered` (1000 floats, ~8 Ko) est retiré du payload WebSocket pour réduire la bande passante :
+
+```python
+# Broadcast sans epoch_filtered — ml_features et ml_prediction conservés
+ws_payload = {k: v for k, v in epoch_result.items() if k != "epoch_filtered"}
+await ws_manager.broadcast(ws_payload)
+```
+
+### WebSocket — message `epoch` mis à jour
+
+```jsonc
+{
+  "type": "epoch",
+  "epoch_idx": 42,
+  "timestamp": "2026-05-19T17:41:24.123Z",
+  "features": { "rel_alpha": 0.312, "engagement": 0.87, ... },  // 27 features v8.0
+  "ml_features": {                                                // 63 features FeatEng
+    "mean": -0.002, "std": 1.0, "skewness": 0.12,
+    "delta_power": 0.18, "theta_power": 0.22, "alpha_power": 0.35,
+    "approx_entropy": 0.71, "sample_entropy": 0.68,
+    "perm_entropy": 0.82, "hfd": 1.73, "dfa": 0.61,
+    // ... 52 autres features
+  },
+  "ml_prediction": {
+    "concentration": 0.8342,
+    "stress":        0.1658,
+    "state":         "concentration",
+    "confidence":    0.8342,
+    "uncertain":     false
+  },
+  "eog_detected": false,
+  "emg_suspect": false,
+  "stats": { "total": 42, "accepted": 38, "rejected": 4 }
+}
+```
+
+### Dépendances ajoutées
+
+```bash
+pip install lightgbm PyWavelets
+```
+
+| Package | Version | Usage |
+|---|---|---|
+| `lightgbm` | 4.6.0 | Modèle de classification Concentration/Stress |
+| `PyWavelets` | 1.8.0 | DWT (Discrete Wavelet Transform) dans feature_eng |
+| `joblib` | ≥1.0 | Chargement du modèle et du scaler sérialisés |
+
+### Port mis à jour
+
+Le serveur tourne maintenant sur le port **8765** (le port 8000 étant occupé par PostgreSQL, 8080 par Apache HTTPD) :
+
+```
+API  : http://192.168.x.x:8765/api/status
+WS   : ws://192.168.x.x:8765/ws
+Docs : http://192.168.x.x:8765/docs
+```
+
+### Structure des fichiers mise à jour
+
+```
+backend-signal/
+├── assembly.py              # Port mis à jour : 8765
+├── api.py                   # epoch_filtered retiré du broadcast WS
+│
+├── dsp/
+│   ├── processor.py         # Étape 6b : prédiction MLClassifier
+│   ├── epochs.py            # Extraction 63 features FeatEng + z-score
+│   └── ml_classifier.py     # NOUVEAU — MLClassifier LightGBM FeatEng
+│
+└── (existant inchangé)
+```
