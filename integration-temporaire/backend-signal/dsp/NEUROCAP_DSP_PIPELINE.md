@@ -1,7 +1,5 @@
 # NeuroCap EEG — Pipeline de Traitement du Signal : Spécification Scientifique Complète
 
-> **PFE Ingénierie Biomédicale** · Oumama SENDADI · ENSAM Rabat / Easy Medical Device  
-> Version du pipeline : **v8.0** · Révision scientifique finale
 
 ---
 
@@ -22,6 +20,8 @@
 13. [Résumé des paramètres DSP](#13-résumé-des-paramètres-dsp)
 14. [Limitations scientifiques et déclaration honnêteté](#14-limitations-scientifiques-et-déclaration-dhonnêteté)
 15. [Références bibliographiques](#15-références-bibliographiques)
+
+> **Feature Engineering ML (63 features) :** voir [`FEATURE_ENGINEERING_63.md`](FEATURE_ENGINEERING_63.md) — évolution 15 → 63 features, DWT, entropies non-linéaires, transition patterns.
 
 ---
 
