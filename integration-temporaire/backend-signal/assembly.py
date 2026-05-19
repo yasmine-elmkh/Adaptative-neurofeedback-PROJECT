@@ -191,9 +191,9 @@ async def main():
     local_ip = WifiManager.get_local_ip()
     print("\n" + "═" * 55)
     print("  NeuroCap EEG v7.2 — WiFi Setup First")
-    print(f"  API  : http://{local_ip}:8000/api/status")
-    print(f"  WS   : ws://{local_ip}:8000/ws")
-    print(f"  Docs : http://{local_ip}:8000/docs")
+    print(f"  API  : http://{local_ip}:8765/api/status")
+    print(f"  WS   : ws://{local_ip}:8765/ws")
+    print(f"  Docs : http://{local_ip}:8765/docs")
     print("═" * 55 + "\n")
 
     # 9. Lancer serveur + DSP + polling
@@ -239,9 +239,9 @@ async def main():
         except Exception as e:
             logger.warning(f"[NET] Impossible de liberer le port {port}: {e}")
 
-    _kill_port(8000)
+    _kill_port(8765)
 
-    config = uvicorn.Config(app, host="0.0.0.0", port=8000,
+    config = uvicorn.Config(app, host="0.0.0.0", port=8765,
                             log_level="info", reload=False)
     server = uvicorn.Server(config)
 
