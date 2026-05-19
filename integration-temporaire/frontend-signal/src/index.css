@@ -1,0 +1,86 @@
+/* ═══════════════════════════════════════════════════════
+   NeuroCap EEG — Design System v8
+   ═══════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg:      #07090f;
+  --surface: #0b0f18;
+  --panel:   #0e1420;
+  --panel2:  #111827;
+  --border:  rgba(255,255,255,.06);
+  --border2: rgba(255,255,255,.12);
+
+  --accent:  #00e5b0;
+  --accent2: #00c99a;
+  --warn:    #f5a623;
+  --danger:  #ff4d6d;
+  --blue:    #4da6ff;
+  --purple:  #a78bfa;
+  --pink:    #f472b6;
+
+  --text:   #c9d8e8;
+  --muted:  #4a5a6e;
+  --dimmed: #1e2d3d;
+
+  --delta:  #818cf8;
+  --theta:  #f59e0b;
+  --alpha:  #10b981;
+  --beta:   #3b82f6;
+  --gamma:  #ef4444;
+
+  --mono: 'Space Mono', monospace;
+  --sans: 'DM Sans', sans-serif;
+
+  --r-sm: 5px;
+  --r-md: 8px;
+  --r-lg: 12px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Page WifiSetup — scroll autorisé */
+.wifi-setup-page {
+  overflow-y: auto !important;
+  height: 100% !important;
+}
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--dimmed); border-radius: 2px; }
+
+button { font-family: var(--sans); cursor: pointer; }
+input  { font-family: var(--sans); }
+
+/* ── Animations ── */
+@keyframes blink    { 0%,100%{opacity:1} 50%{opacity:.15} }
+@keyframes spin     { to{transform:rotate(360deg)} }
+@keyframes fadeIn   { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+@keyframes pulse    { 0%,100%{opacity:.6;transform:scale(1)} 50%{opacity:1;transform:scale(1.03)} }
+@keyframes scanline { 0%{transform:translateY(-100%)} 100%{transform:translateY(100vh)} }
+
+/* ── Badge qualité signal ── */
+.q-badge { border-radius: 5px; letter-spacing: .5px; font-family: var(--mono); font-size: 9px; padding: 4px 10px; border: 1px solid; }
+.q-ok    { color:#00e5b0; border-color:rgba(0,229,176,.25);  background:rgba(0,229,176,.06) }
+.q-warn  { color:#f5a623; border-color:rgba(245,166,35,.25); background:rgba(245,166,35,.06) }
+.q-fail  { color:#ff4d6d; border-color:rgba(255,77,109,.25); background:rgba(255,77,109,.06) }
+.q-idle  { color:#4a5a6e; border-color:rgba(74,90,110,.25);  background:rgba(74,90,110,.06) }

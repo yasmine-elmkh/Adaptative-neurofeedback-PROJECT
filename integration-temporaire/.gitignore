@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+
+# Node / Frontend
+node_modules/
+dist/
+
+# Enregistrements EEG locaux
+recordings/
+*.csv
+
+# Env
+.env
+.env.*
