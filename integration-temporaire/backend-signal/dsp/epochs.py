@@ -15,7 +15,10 @@ Changements vs original :
 Ref : Cohen 2014 ch.10-19, Kanoga & Mitsukura 2017
 """
 
+import sys
+import logging
 import numpy as np
+from pathlib     import Path
 from scipy.signal import welch, get_window
 from datetime    import datetime
 from collections import deque
@@ -24,6 +27,24 @@ from .artifacts import ArtifactDetector
 from .filters   import FilterBank, wavelet_denoise_adaptive
 from .features  import higuchi_fd, extract_features, BANDS_V8, TOTAL_BAND
 from utils.constants import FS, EPOCH_SEC, EPOCH_SAMP, EPOCH_STEP
+
+logger = logging.getLogger("NeuroCap")
+
+# ── Import feature_eng (63 features alignées entraînement) ─────────────
+# On remonte 4 niveaux : dsp/ → backend-signal/ → integration-temporaire/ → EEG_project/
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+_extract_feateng = None
+try:
+    from src.data.feature_eng import extract_all_features as _extract_feateng
+    logger.info("[Epochs] feature_eng chargé — 63 features ML disponibles")
+except Exception as _fe_err:
+    logger.warning(
+        f"[Epochs] feature_eng non disponible ({_fe_err}). "
+        "Les epochs n'incluront pas ml_features."
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -191,9 +212,19 @@ class EpochExtractor:
         # ── Normalisation dB vs baseline ──────────────────────────
         db_powers = self.pipeline.normalise_db(filtered)
 
-        # ── Features ─────────────────────────────────────────────
+        # ── Features DSP v8.0 (27 features — dashboard, bandes v8.0) ────
         emg_ratio = flags.get("emg_ratio", 0.0)
         features  = extract_features(filtered, db_powers, emg_ratio=emg_ratio)
+
+        # ── Features ML FeatEng (63 features — alignées entraînement) ────
+        # Z-score par époque (Chaudhary 2025, Lawhern 2018) + extract_all_features()
+        # Bandes identiques à l'entraînement : δ 0.5-4, θ 4-8, γ 30-40 Hz
+        ml_features = {}
+        if _extract_feateng is not None:
+            _std = float(np.std(filtered))
+            if _std > 1e-10:
+                _epoch_z   = (filtered - np.mean(filtered)) / _std
+                ml_features = _extract_feateng(_epoch_z)
 
         # ── Compteurs ────────────────────────────────────────────
         self.n_accepted += 1
@@ -218,7 +249,14 @@ class EpochExtractor:
             "emg_suspect":  flags.get("emg_suspect",   False),
             "emg_ratio":    emg_ratio,
 
-            # Features DSP
+            # Signal filtré (1000 éch.) — fallback si feature_eng indisponible.
+            "epoch_filtered": filtered.tolist(),
+
+            # 63 features FeatEng alignées avec l'entraînement LOSO.
+            # Calculées sur l'époque z-scorée, bandes standard (θ 4-8, δ 0.5-4).
+            "ml_features": ml_features,
+
+            # Features DSP v8.0
             "features":  features,
             "db_powers": db_powers,
             "hfd":       features.get("fractal_dim", 1.5),
