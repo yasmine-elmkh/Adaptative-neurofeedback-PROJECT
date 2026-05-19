@@ -10,7 +10,8 @@ import queue
 import os
 import logging
 from datetime import datetime
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from pathlib import Path
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -239,7 +240,11 @@ async def processing_loop():
                 etype = epoch_result.get("type")
                 if etype == "epoch":
                     if ws_manager:
-                        await ws_manager.broadcast(epoch_result)
+                        # epoch_filtered (1000 floats) est utilisé en interne par le ML
+                        # mais ne doit pas transiter sur le WebSocket → on le retire.
+                        ws_payload = {k: v for k, v in epoch_result.items()
+                                      if k != "epoch_filtered"}
+                        await ws_manager.broadcast(ws_payload)
                     if _rec_active and _csv_epochs_writer:
                         feat = epoch_result["features"]
                         grf  = epoch_result.get("graph", {})
@@ -410,6 +415,47 @@ def export_csv():
         return JSONResponse({"error": "Aucun enregistrement"}, status_code=404)
     return FileResponse(_last_rec_sig_path, media_type="text/csv",
                         filename=os.path.basename(_last_rec_sig_path))
+
+
+# ── Analyse fichier EEG offline ──────────────────────────────────
+@app.post("/api/analyze_file")
+async def analyze_file(file: UploadFile = File(...)):
+    """
+    Analyse un fichier EEG (.edf, .csv, .txt) :
+    Golden Filter → z-score → 63 features FeatEng → LightGBM.
+    Retourne la classification par époque + résumé de session.
+    """
+    content  = await file.read()
+    filename = file.filename or "signal"
+    ext      = Path(filename).suffix.lower()
+
+    try:
+        from dsp.file_processor import read_edf, read_csv_txt, process_signal
+    except ImportError as e:
+        raise HTTPException(500, detail=f"Module file_processor non disponible : {e}")
+
+    try:
+        if ext == ".edf":
+            signal, fs = read_edf(content)
+        elif ext in (".csv", ".txt"):
+            signal, fs = read_csv_txt(content, filename)
+        else:
+            raise HTTPException(
+                400,
+                detail=f"Format '{ext}' non supporté. Formats acceptés : .edf, .csv, .txt"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, detail=f"Lecture fichier échouée : {e}")
+
+    try:
+        result = process_signal(signal, fs)
+    except Exception as e:
+        raise HTTPException(500, detail=f"Erreur traitement DSP : {e}")
+
+    result["filename"] = filename
+    return result
 
 
 # ── WebSocket ─────────────────────────────────────────────────
