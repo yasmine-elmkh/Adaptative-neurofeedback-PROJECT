@@ -8,9 +8,9 @@ import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 
 const API_CANDIDATES = [
-  `http://${window.location.hostname}:8000/api`,
-  'http://localhost:8000/api',
-  'http://127.0.0.1:8000/api',
+  `http://${window.location.hostname}:8765/api`,
+  'http://localhost:8765/api',
+  'http://127.0.0.1:8765/api',
 ]
 
 // ── Styles ──────────────────────────────────────────────────────────
@@ -120,8 +120,9 @@ const S = {
 }
 
 // ── Composant ────────────────────────────────────────────────────────
-export default function WifiSetup({ onDone }) {
-  const [phase, setPhase] = useState('loading')   // loading | ready | confirming | waiting | success | error
+export default function WifiSetup({ onDone, onBack }) {
+  const [phase, _setPhase] = useState('loading')   // loading | ready | confirming | waiting | success | error
+  const setPhase = (p) => { phaseRef.current = p; _setPhase(p) }
   const [networks, setNetworks] = useState([])
   const [ssid, setSsid] = useState('')
   const [password, setPassword] = useState('')
@@ -137,6 +138,7 @@ export default function WifiSetup({ onDone }) {
   const pollRef = useRef(null)
   const wsRef = useRef(null)
   const netPollRef = useRef(null)
+  const phaseRef = useRef('loading')
 
   // ── Init ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -235,7 +237,7 @@ export default function WifiSetup({ onDone }) {
       }
 
       ws.onclose = () => {
-        setTimeout(() => { if (phase !== 'success') connectWS() }, 3000)
+        setTimeout(() => { if (phaseRef.current !== 'success') connectWS() }, 3000)
       }
       ws.onerror = () => {}
     } catch {}
@@ -418,6 +420,13 @@ export default function WifiSetup({ onDone }) {
         <div style={S.logo}>
           <div style={S.icon}>🧠</div>
           <div><p style={S.title}>NeuroCap EEG</p><p style={S.sub}>Configuration WiFi</p></div>
+          {onBack && (
+            <button onClick={onBack} style={{
+              marginLeft: 'auto', background: 'rgba(255,255,255,.04)',
+              border: '1px solid rgba(255,255,255,.08)', borderRadius: 6,
+              color: '#4a5a6e', fontSize: 10, padding: '4px 10px', cursor: 'pointer',
+            }}>← Accueil</button>
+          )}
         </div>
 
         {/* ESP32 AP */}
