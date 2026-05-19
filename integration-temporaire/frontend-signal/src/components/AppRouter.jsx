@@ -1,57 +1,51 @@
-import { useState, useEffect } from 'react'
-import WifiSetup from './WifiSetup'
-import Dashboard from '../App'
+/**
+ * AppRouter.jsx — Routage principal NeuroCap EEG
+ *
+ * Flux :
+ *   WelcomePage
+ *     ├── [Casque NeuroCap] → WifiSetup → Dashboard live (App.jsx)
+ *     └── [Fichier EEG]     → FileDashboard (upload + résultats ML)
+ */
 
-const API_BASE = `http://${window.location.hostname}:8000/api`
+import { useState } from 'react'
+import WelcomePage   from './WelcomePage'
+import WifiSetup     from './WifiSetup'
+import FileDashboard from './FileDashboard'
+import Dashboard     from '../App'
 
 export default function AppRouter() {
-  const [wifiConfigured, setWifiConfigured] = useState(false)
-  const [loading, setLoading] = useState(true)
+  // 'welcome' | 'hardware-wifi' | 'hardware-live' | 'file'
+  const [mode, setMode] = useState('welcome')
 
-  useEffect(() => {
-    checkStatus()
-    const interval = setInterval(checkStatus, 3000)
-    return () => clearInterval(interval)
-  }, [])
-
-  async function checkStatus() {
-    try {
-      const r = await fetch(`${API_BASE}/status`, {
-        signal: AbortSignal.timeout(3000)
-      })
-      const data = await r.json()
-      if (data.wifi_configured || data.esp32_connected) {
-        setWifiConfigured(true)
-      }
-    } catch {
-      // serveur pas joignable
-    } finally {
-      setLoading(false)
-    }
+  // ── Welcome ──────────────────────────────────────────────────────
+  if (mode === 'welcome') {
+    return (
+      <WelcomePage
+        onHardware={() => setMode('hardware-wifi')}
+        onFile={() => setMode('file')}
+      />
+    )
   }
 
-  // Écran chargement
-  if (loading) return (
-    <div style={{
-      minHeight: '100vh', display: 'flex', flexDirection: 'column',
-      alignItems: 'center', justifyContent: 'center', background: '#07090f',
-      fontFamily: "'DM Sans',system-ui,sans-serif",
-    }}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      <div style={{
-        width: 32, height: 32, border: '3px solid rgba(77,166,255,.2)',
-        borderTopColor: '#4da6ff', borderRadius: '50%',
-        animation: 'spin .8s linear infinite', marginBottom: 12,
-      }} />
-      <div style={{ color: '#4a5a6e', fontSize: 12 }}>Chargement NeuroCap…</div>
-    </div>
-  )
-
-  // WiFi pas encore configuré → page Setup
-  if (!wifiConfigured) {
-    return <WifiSetup onDone={() => setWifiConfigured(true)} />
+  // ── Mode hardware : WiFi setup ────────────────────────────────────
+  if (mode === 'hardware-wifi') {
+    return (
+      <WifiSetup
+        onDone={() => setMode('hardware-live')}
+        onBack={() => setMode('welcome')}
+      />
+    )
   }
 
-  // WiFi OK → Dashboard (App.jsx)
-  return <Dashboard />
+  // ── Mode hardware : dashboard temps réel ─────────────────────────
+  if (mode === 'hardware-live') {
+    return <Dashboard onBack={() => setMode('welcome')} />
+  }
+
+  // ── Mode fichier : upload + résultats ────────────────────────────
+  if (mode === 'file') {
+    return <FileDashboard onBack={() => setMode('welcome')} />
+  }
+
+  return null
 }
