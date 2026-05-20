@@ -5,6 +5,16 @@ Pipeline EEG temps réel (ESP32 → DSP → LightGBM) + fine-tuning automatique 
 
 ---
 
+## Contributeurs
+
+| Module | Auteure | Périmètre |
+|--------|---------|-----------|
+| **DSP pipeline** (`services/eeg/dsp/`, `tcp_receiver.py`, `wifi_manager.py`) | **Oumama Sendadi** | Implémentation originale dans `integration-temporaire/backend-signal/`. Filtres IIR Golden Filter, EpochExtractor, détection artefacts EOG/EMG, extraction features DSP v8.0, TCPReceiver ESP32, WifiManager UDP. |
+| **Intégration DSP + LightGBM** | **Yasmine El Mkhantar** | Ajout `ml_classifier.py` (LightGBM 63 features), `file_processor.py` (analyse offline), `eeg_pipeline.py` (orchestration), connexion au système d'auth/DB/sessions. |
+| **Routes API, auth, admin, thérapeute, fine-tuning** | **Yasmine El Mkhantar** | Toutes les routes REST (`/api/eeg`, `/api/auth`, `/api/sessions`, `/api/admin`, `/api/therapist`), service fine-tuning automatique, schémas Pydantic. |
+
+---
+
 ## Stack
 
 | Composant | Technologie |

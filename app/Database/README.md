@@ -117,12 +117,14 @@ Paramètres configurables via l'interface admin : durée blocs, nombre blocs, se
 | Fichier | Usage |
 |---|---|
 | `schema_v3.sql` | **Schéma complet v3.0 — fichier unique à exécuter** |
-| `NeuroCap_DB.sql` | Schéma initial v1 (obsolète — conservé pour référence historique) |
-| `supabase_migration.sql` | Migration v1 → v2 (obsolète — intégré dans schema_v3.sql) |
-| `migration_roles.sql` | Ajout rôles v1 (obsolète — intégré dans schema_v3.sql) |
-| `migration_roles_v2.sql` | Ajout rôles v2 (obsolète — intégré dans schema_v3.sql) |
-| `historique.sql` | Exemples de requêtes analytiques SQL |
+| `historique.sql` | Exemples de requêtes analytiques SQL (debug / reporting) |
 | `inserer_donnees.py` | Script de seed pour données de démo/test |
+| `archive/NeuroCap_DB.sql` | Schéma initial v1 — archivé, ne pas utiliser |
+| `archive/supabase_migration.sql` | Migration v1→v2 — archivée, ne pas utiliser |
+| `archive/migration_roles.sql` | Migration rôles v1 — archivée, ne pas utiliser |
+| `archive/migration_roles_v2.sql` | Migration rôles v2 — archivée, ne pas utiliser |
+
+> Tout le contenu des fichiers archivés est consolidé et à jour dans `schema_v3.sql`.
 
 ---
 

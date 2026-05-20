@@ -5,6 +5,15 @@ Oscilloscope temps réel, analyse fichiers EEG offline, dashboard patient, gesti
 
 ---
 
+## Contributeurs
+
+| Composant | Auteure | Périmètre |
+|-----------|---------|-----------|
+| **Composants signal** (`components/eeg/`, `hooks/`) | **Oumama Sendadi** | Implémentation originale dans `integration-temporaire/frontend-signal/`. SignalCanvas (oscilloscope canvas), BandBars (puissance spectrale), WifiSetup (config WiFi ESP32), EpochHistory, FeaturesPanel, Sidebar, useWebSocket.js, useRecording.js. |
+| **Application complète** (toutes les pages, routing, API) | **Yasmine El Mkhantar** | Dashboard patient, EEGFile, EEGLive, EEGSelector, ElectrodeGuide, Profile, AdminDashboard, AdminPanel, TherapistDashboard, TherapistPatientDetail, Landing, Login, Register. Routing, auth store, api.js, Layout, ThemeContext, i18n. |
+
+---
+
 ## Stack
 
 | Technologie | Version | Rôle |

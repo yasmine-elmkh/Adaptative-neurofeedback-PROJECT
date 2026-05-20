@@ -6,6 +6,21 @@
 
 ---
 
+## Contributeurs
+
+| Partie | Auteure | Description |
+|--------|---------|-------------|
+| **Acquisition & Signal (DSP)** | **Oumama Sendadi** | Pipeline temps réel ESP32 : TCPReceiver, WifiManager, FilterBank, EpochExtractor, détection artefacts, features DSP v8.0, enregistrement CSV, WebSocket signal — `integration-temporaire/backend-signal/` |
+| **Dashboard signal React** | **Oumama Sendadi** | Composants React signal : SignalCanvas, BandBars, WifiSetup, EpochHistory, FeaturesPanel, Sidebar, hooks useWebSocket / useRecording — `integration-temporaire/frontend-signal/` |
+| **Classification ML & Deep Learning** | **Yasmine El Mkhantar** | Pipeline preprocessing/augmentation EEG, entraînement 19 architectures DL, classifieurs ML baseline (SVM, RF, XGBoost), LightGBM FeatEng 63 features LOSO |
+| **Application NeuroCap full-stack** | **Yasmine El Mkhantar** | Backend FastAPI complet (auth, sessions, admin, thérapeute, assistant, EEG routes), frontend React SPA (toutes les pages), service fine-tuning automatique, intégration DSP + LightGBM dans l'app unifiée |
+
+> **Note d'intégration** : Les modules DSP et composants signal d'Oumama Sendadi (développés dans `integration-temporaire/`) ont été intégrés dans l'application unifiée :
+> - `app/Backend/app/services/eeg/` — pipeline DSP intégré
+> - `app/Frontend/src/components/eeg/` + `app/Frontend/src/hooks/` — composants signal intégrés
+
+---
+
 ## Architecture globale
 
 ```
