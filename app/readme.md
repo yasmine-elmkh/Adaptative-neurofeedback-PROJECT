@@ -1,354 +1,291 @@
-# NeuroCap — Plateforme de Neurofeedback EEG Adaptatif
+# NeuroCap — Application Unifiée v3.0
 
-> Application full-stack temps réel pour l'entraînement cognitif par neurofeedback EEG, avec classification IA, moteur adaptatif, visualisation 3D et assistant RAG.
-
----
-
-## Table des matières
-
-1. [Architecture générale](#architecture-générale)
-2. [Stack technologique](#stack-technologique)
-3. [Structure du projet](#structure-du-projet)
-4. [Backend (FastAPI)](#backend-fastapi)
-5. [Frontend (React + Vite)](#frontend-react--vite)
-6. [Pipeline temps réel](#pipeline-temps-réel)
-7. [Installation & déploiement](#installation--déploiement)
-8. [Configuration](#configuration)
-9. [Sécurité](#sécurité)
-10. [Tests](#tests)
+> Plateforme full-stack de neurofeedback EEG adaptatif.  
+> Pipeline temps réel ESP32 → DSP v8.0 → LightGBM + fine-tuning automatique personnalisé.  
+> Dashboard patient, gestion thérapeute, administration, assistant RAG.
 
 ---
 
-## Architecture générale
+## Architecture globale
 
 ```
-┌─────────────────┐     ┌──────────────────────────────────────────────┐
-│  Casque EEG     │     │              Backend FastAPI                 │
-│  (simulateur    │────▶│                                              │
-│   ou AD8232)    │     │  ┌─────────┐  ┌──────────┐  ┌───────────┐  │
-└─────────────────┘     │  │ Signal  │─▶│ Features │─▶│ Classifier│  │
-                        │  │ Process │  │ Extract  │  │ (EEGNet)  │  │
-                        │  └─────────┘  └──────────┘  └─────┬─────┘  │
-                        │                                     │        │
-                        │  ┌──────────┐  ┌──────────────┐    ▼        │
-                        │  │ Adaptive │◀─│  P(conc),    │────┘        │
-                        │  │ Engine   │  │  P(stress)   │             │
-                        │  └────┬─────┘  └──────────────┘             │
-                        │       │                                      │
-                        │       ▼  WebSocket (500ms)                   │
-                        └───────┬──────────────────────────────────────┘
-                                │
-                ┌───────────────▼───────────────────┐
-                │        Frontend React              │
-                │                                    │
-                │  ┌──────────┐ ┌────────────────┐  │
-                │  │ Dashboard│ │  Session Live   │  │
-                │  │ History  │ │  - Feedback     │  │
-                │  │ Profile  │ │  - Brain 3D     │  │
-                │  │ Assistant│ │  - TopoMap 2D   │  │
-                │  └──────────┘ │  - Charts       │  │
-                │               └────────────────┘  │
-                └────────────────────────────────────┘
-                                │
-         ┌──────────────────────┼──────────────────────┐
-         │                      │                       │
-    PostgreSQL             Redis (cache)          ChromaDB (RAG)
+Matériel (AD8232 + ESP32, 250 Hz, Fp2)
+    │  TCP :9000  (lignes CSV)
+    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  Backend FastAPI  (port 8001)                                          │
+│                                                                        │
+│  ┌─────────────┐   ┌─────────────────────────────────┐   ┌─────────┐ │
+│  │ TCPReceiver │──▶│  DSP v8.0   (eeg/dsp/)          │──▶│  WS     │ │
+│  │  port 9000  │   │  Golden Filter 1–45 Hz           │   │ /ws/eeg │ │
+│  └─────────────┘   │  EpochExtractor 4 s @ 250 Hz    │   └─────────┘ │
+│                    │  Z-score + 63 features FeatEng   │               │
+│  ┌─────────────┐   │  LightGBM (LOSO, 63 features)   │   ┌─────────┐ │
+│  │ WifiManager │   └─────────────────────────────────┘   │ /ws/    │ │
+│  │ UDP :4320   │                                          │ session │ │
+│  └─────────────┘   ┌─────────────────────────────────┐   └─────────┘ │
+│                    │  Fine-tuning automatique          │               │
+│                    │  (services/finetune/)             │               │
+│                    │  APScheduler 02:00 UTC            │               │
+│                    │  LightGBM incremental (init_model)│               │
+│                    └─────────────────────────────────┘               │
+│                                                                        │
+│  REST /api/auth · /api/sessions · /api/admin · /api/profile           │
+│       /api/eeg/* · /api/therapist/* · /api/assistant                  │
+└────────────────────────────────────────────────────────────────────────┘
+    │ WebSocket  (Vite proxy /ws → 8001)
+    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  Frontend React 18 + Vite  (port 5173)                                 │
+│                                                                        │
+│  /dashboard     → Patient : EEG recordings + sessions neurofeedback   │
+│  /eeg           → EEGSelector (choix live / fichier)                  │
+│  /eeg-live      → EEGLive (oscilloscope temps réel, WiFi, baseline)   │
+│  /eeg-file      → EEGFile (upload + analyse LightGBM + auto-save)     │
+│  /electrode-guide → Guide scientifique + consentement RGPD            │
+│  /profile       → Profil EEG (type A/B/C, palier, fine-tuning IA)     │
+│  /therapist     → Dashboard thérapeute (patients, notes, rapports EEG) │
+│  /admin         → Administration (users, audit, settings)              │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Stack technologique
-
-| Couche | Technologies |
-|--------|-------------|
-| **Backend** | Python 3.11, FastAPI, SQLAlchemy 2.0, asyncpg, PyTorch, SciPy |
-| **Frontend** | React 18, Vite, Tailwind CSS, Zustand, Recharts, Three.js (R3F) |
-| **Base de données** | PostgreSQL 15, Redis 7 |
-| **IA / ML** | EEGNet (PyTorch), Butterworth filters, Welch PSD, EWMA |
-| **RAG** | ChromaDB, Ollama (mistral:7b) ou Claude API |
-| **Infra** | Docker Compose, Nginx (reverse proxy) |
+---
 
 ## Structure du projet
 
 ```
-neurocap-platform/
-├── docker-compose.yml          # Orchestration des services
-├── .env.example                # Variables d'environnement
+app/
+├── Backend/
+│   ├── app/
+│   │   ├── main.py                     ← FastAPI lifespan : EEG pipeline + FT scheduler
+│   │   ├── config.py
+│   │   ├── core/
+│   │   │   ├── database.py             ← Supabase AsyncClient singleton
+│   │   │   └── security.py            ← JWT, bcrypt, get_current_user
+│   │   ├── middleware/security.py      ← CORS, rate limiting
+│   │   ├── routes/
+│   │   │   ├── auth.py                ← /api/auth
+│   │   │   ├── sessions.py            ← /api/sessions
+│   │   │   ├── Profile.py             ← /api/profile
+│   │   │   ├── admin.py               ← /api/admin
+│   │   │   ├── therapist.py           ← /api/therapist (+ /eeg-reports)
+│   │   │   ├── assistant.py           ← /api/assistant
+│   │   │   └── eeg.py                 ← /api/eeg/* (tout EEG + fine-tuning status)
+│   │   ├── schemas/__init__.py         ← Pydantic models
+│   │   └── services/
+│   │       ├── eeg/
+│   │       │   ├── eeg_pipeline.py    ← Singleton orchestrateur
+│   │       │   ├── tcp_receiver.py
+│   │       │   ├── wifi_manager.py
+│   │       │   ├── dsp/
+│   │       │   │   ├── filters.py     ← Golden Filter IIR
+│   │       │   │   ├── epochs.py      ← EpochExtractor, z-score
+│   │       │   │   ├── features.py    ← extraction spectrales
+│   │       │   │   ├── artifacts.py   ← détection EOG/EMG
+│   │       │   │   ├── ml_classifier.py ← LightGBM 63 features LOSO
+│   │       │   │   └── file_processor.py ← Analyse offline .edf/.csv/.txt
+│   │       │   └── recording/csv_handler.py
+│   │       ├── finetune/               ← Fine-tuning automatique
+│   │       │   ├── conditions.py      ← Règles activité + déclenchement
+│   │       │   ├── runner.py          ← LightGBM incremental + sauvegarde
+│   │       │   └── scheduler.py       ← APScheduler nocturne 02:00 UTC
+│   │       ├── adaptative_engine.py
+│   │       ├── classifieur.py
+│   │       └── rag_service.py
+│   └── requirements.txt
 │
-├── backend/
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   └── app/
-│       ├── main.py             # Point d'entrée FastAPI + lifespan
-│       ├── core/
-│       │   ├── config.py       # Pydantic Settings (env vars)
-│       │   ├── database.py     # Async SQLAlchemy engine
-│       │   └── security.py     # JWT + bcrypt + dependencies
-│       ├── models/
-│       │   └── user.py         # ORM: User, EEGProfile, Session, SessionEvent, AuditLog
-│       ├── schemas/
-│       │   └── __init__.py     # Pydantic: request/response validation
-│       ├── api/routes/
-│       │   ├── auth.py         # /auth/register, /login, /refresh, /me
-│       │   ├── profile.py      # /profile/me, /profile/calibration
-│       │   ├── sessions.py     # /sessions, /sessions/{id}/report, /export
-│       │   ├── assistant.py    # /assistant/ask (RAG)
-│       │   └── admin.py        # /admin/users, /admin/stats
-│       ├── services/
-│       │   ├── eeg_source.py       # EEGSource ABC + SimulatorSource + SerialSource
-│       │   ├── signal_processing.py # Butterworth + Notch + Z-score + Features
-│       │   ├── classifier.py       # EEGNetLite + AIClassifier (thread-safe)
-│       │   ├── adaptive_engine.py  # EWMA + Mou et al. rules + paliers
-│       │   └── rag_assistant.py    # ChromaDB + Ollama/Claude
-│       └── websocket/
-│           └── session_ws.py   # Pipeline temps réel (500ms loop)
-│
-└── frontend/
-    ├── Dockerfile
-    ├── package.json
-    ├── vite.config.js
-    ├── tailwind.config.js
-    ├── index.html
+└── Frontend/
     └── src/
-        ├── main.jsx            # React entry point
-        ├── App.jsx             # BrowserRouter + AuthGuard
-        ├── styles/globals.css  # Tailwind + glass-card + btn-primary
-        ├── utils/api.js        # API client (REST + WebSocket)
-        ├── stores/index.js     # Zustand: useAuthStore + useSessionStore
+        ├── pages/
+        │   ├── DashboardPage.jsx       ← Stats EEG + sessions neurofeedback
+        │   ├── EEGSelector.jsx         ← Choix live / fichier
+        │   ├── EEGLive.jsx             ← Stream temps réel
+        │   ├── EEGFile.jsx             ← Upload + analyse + auto-save
+        │   ├── ElectrodeGuide.jsx      ← Guide + consentement
+        │   ├── Profile.jsx             ← Profils A/B/C + fine-tuning IA
+        │   ├── TherapistDashboard.jsx
+        │   ├── TherapistPatientDetail.jsx
+        │   ├── AdminDashboard.jsx
+        │   └── AdminPanel.jsx
         ├── components/
-        │   ├── Layout.jsx          # Sidebar navigation
-        │   ├── EEGGauge.jsx        # SVG circular gauge
-        │   ├── SignalQuality.jsx   # Signal quality bars
-        │   ├── FeedbackRenderer.jsx # Visual + Sound + Game feedback
-        │   ├── RAGChat.jsx         # Reusable chat component
-        │   ├── Brain3D.jsx         # Three.js 3D brain
-        │   └── TopoMap2D.jsx       # Canvas 2D topographic heatmap
-        └── pages/
-            ├── Login.jsx
-            ├── Register.jsx
-            ├── Dashboard.jsx
-            ├── SessionLive.jsx
-            ├── History.jsx
-            ├── SessionDetail.jsx
-            ├── Assistant.jsx
-            └── Profile.jsx
+        │   ├── eeg/                    ← SignalCanvas, BandBars
+        │   └── Layout.jsx
+        ├── hooks/
+        │   └── useEEGWebSocket.js
+        └── utils/api.js                ← eeg.* + finetuningStatus()
 ```
-
-## Backend (FastAPI)
-
-### Modèles de données (SQLAlchemy ORM)
-
-**5 tables principales** avec UUIDs, timestamps, et relations cascadées :
-
-- **User** — email, password_hash (bcrypt), role (user/admin)
-- **EEGProfile** — iapf, alpha_power_ref, theta_beta_ratio_ref, reactivity_score, profile_type (A/B/C), palier (P1→P4), thresholds (JSON)
-- **Session** — session_number, status (11 états FSM), feedback_mode, scores, durée
-- **SessionEvent** — séries temporelles (concentration, stress, threshold, alpha, TBR, qualité)
-- **AuditLog** — journalisation des accès sensibles
-
-### API REST (6 routeurs, 12 endpoints)
-
-| Route | Méthode | Description |
-|-------|---------|-------------|
-| `/api/auth/register` | POST | Inscription → JWT + refresh |
-| `/api/auth/login` | POST | Connexion → JWT + refresh |
-| `/api/auth/refresh` | POST | Renouvellement du token |
-| `/api/auth/me` | GET | Infos utilisateur |
-| `/api/profile/me` | GET | Profil EEG complet |
-| `/api/profile/calibration` | POST | Calibration S1 → IAPF, type, seuils |
-| `/api/sessions` | GET/POST | Liste / création de session |
-| `/api/sessions/{id}/report` | GET | Rapport (timelines + recommandations) |
-| `/api/sessions/{id}/export` | GET | Export CSV des événements |
-| `/api/assistant/ask` | POST | Question RAG + contexte session |
-| `/api/admin/users` | GET | Liste utilisateurs (admin) |
-| `/api/admin/stats` | GET | Statistiques globales (admin) |
-
-### Services métier
-
-#### EEG Source (Pattern Factory)
-```python
-# Interface abstraite
-class EEGSource(ABC):
-    def read_window(self) -> np.ndarray: ...
-    def get_signal_quality(self) -> float: ...
-
-# Implémentations
-SimulatorSource  # Alpha + beta + theta + bruit rose + artefacts
-SerialSource     # Port série (AD8232 + ESP32)
-```
-
-#### Signal Processing
-- Butterworth 4ème ordre (0.5–80 Hz)
-- Notch 50 Hz (réseau électrique)
-- Normalisation Z-score
-- Features spectrales : PSD (Welch), 5 bandes (δ θ α β γ)
-- Ratios : TBR, alpha/theta, engagement index
-- IAPF (pic alpha individuel)
-- Paramètres de Hjorth (activité, mobilité, complexité)
-- Statistiques (kurtosis, skewness, RMS)
-
-#### Classifier (EEGNetLite)
-Architecture EEGNet légère (PyTorch) :
-1. Conv temporelle (1×64)
-2. Depthwise conv
-3. Separable conv (dw + pw)
-4. FC → 2 classes [P(concentration), P(stress)]
-
-Inférence thread-safe via `asyncio.to_thread()` + `threading.Lock`.
-
-#### Moteur adaptatif (Mou et al. 2024)
-- EWMA : `α̂[t] = 0.3 × α_raw + 0.7 × α̂[t-1]`
-- Seuil inter-blocs (3 min) : >60% succès → +0.5%, <40% → -0.5%
-- Seuil inter-sessions : `threshold_day = 0.7 × global_ref + 0.3 × short_ref`
-- 4 paliers progressifs (P1→P4) avec multiplicateurs de difficulté
-
-#### Assistant RAG
-- Vector store : ChromaDB (cosine similarity)
-- 10 documents de base (protocole, FAQ, techniques)
-- Enrichissement contextuel (métriques session)
-- Génération : Ollama (mistral:7b) ou Claude API
-- Prompt système strict : pas de diagnostic médical
-
-### WebSocket (Pipeline temps réel)
-
-Boucle toutes les 500ms :
-```
-EEG Source → Preprocess → Features → IA Classification → Adaptive Update → Feedback → WebSocket → DB
-```
-
-Frame JSON envoyée :
-```json
-{
-  "timestamp": "2024-01-15T10:30:00Z",
-  "concentration": 0.72,
-  "stress": 0.28,
-  "features": { "alpha": 12.4, "theta_beta_ratio": 0.65, "engagement_index": 0.81, "iapf": 10.2 },
-  "threshold": 0.68,
-  "feedback_command": { "type": "visual", "intensity": 0.7, "is_success": true },
-  "signal_quality": 0.92,
-  "block_number": 3,
-  "block_time_sec": 120.5,
-  "ewma": 0.71,
-  "success_rate": 0.65
-}
-```
-
-## Frontend (React + Vite)
-
-### Design system
-
-Palette **"Neuro Dark"** (Tailwind custom) :
-- Background : `#0a0e1a`
-- Surface : `#111827`
-- Card : `#1a2236` (glass effect avec backdrop-blur)
-- Accent : `#00d4ff` (cyan)
-- Success/Warning/Danger : vert/ambre/rouge
-
-Classes utilitaires : `glass-card`, `btn-primary`, `btn-ghost`, `input-field`
-
-### Pages
-
-1. **Login/Register** — Split layout, validation, stockage JWT
-2. **Dashboard** — Stats cards, DualGauge, AreaChart progression, sessions récentes, mini RAG chat
-3. **Session Live** — WebSocket, 3 modes feedback, Brain3D/TopoMap2D, chart temps réel, contrôles
-4. **Historique** — Table filtrable (recherche + mode), navigation vers détail
-5. **Détail session** — Rapport complet, timelines, recommandations, export CSV
-6. **Assistant** — Chat RAG plein écran
-7. **Profil** — Type A/B/C, métriques EEG, progression paliers, recalibration
-
-### Composants réutilisables
-
-| Composant | Description |
-|-----------|-------------|
-| `EEGGauge` | Jauge SVG circulaire animée |
-| `DualGauge` | Concentration + Stress côte à côte |
-| `SignalQuality` | Barres de qualité signal (5 niveaux) |
-| `VisualFeedback` | Orbe coloré (hue proportionnel) avec glow |
-| `SoundFeedback` | Web Audio API, fréquence proportionnelle |
-| `GameFeedback` | Canvas ball-game (maintenir au-dessus du seuil) |
-| `Brain3D` | Three.js : hémisphères, zone préfrontale, connectome, particules |
-| `TopoMap2D` | Canvas 2D : heatmap IDW, électrodes 10-20, légende couleurs |
-| `RAGChat` | Chat (compact/full), historique, sources |
-| `Layout` | Sidebar collapsible, navigation, user section |
-
-### State management (Zustand)
-
-- `useAuthStore` — user, token, fetchUser, logout
-- `useSessionStore` — WebSocket, frame live, history buffer, pause/resume, feedback mode
-
-## Installation & déploiement
-
-### Prérequis
-
-- Docker & Docker Compose
-- Node.js 18+ (dev local frontend)
-- Python 3.11+ (dev local backend)
-
-### Lancement rapide (Docker)
-
-```bash
-# 1. Cloner et configurer
-cp .env.example .env
-# Éditer .env avec vos secrets
-
-# 2. Démarrer
-docker compose up -d
-
-# 3. Accéder
-# Frontend : http://localhost:5173
-# Backend :  http://localhost:8000
-# API docs : http://localhost:8000/docs
-```
-
-### Développement local
-
-```bash
-# Backend
-cd backend
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-
-# Frontend (nouveau terminal)
-cd frontend
-npm install
-npm run dev
-```
-
-## Configuration
-
-Toutes les variables dans `.env` :
-
-| Variable | Défaut | Description |
-|----------|--------|-------------|
-| `DATABASE_URL` | `postgresql+asyncpg://...` | Connexion PostgreSQL |
-| `REDIS_URL` | `redis://localhost:6379` | Cache Redis |
-| `JWT_SECRET_KEY` | `change-me` | Secret JWT (64 chars en prod) |
-| `MODEL_PATH` | `models/eegnet_best.pt` | Chemin du modèle IA |
-| `EEG_SOURCE_TYPE` | `simulator` | `simulator` ou `serial` |
-| `RAG_MODE` | `local` | `local` (Ollama) ou `claude` |
-| `CLAUDE_API_KEY` | — | Clé API Claude (si RAG_MODE=claude) |
-| `CORS_ORIGINS` | `localhost:5173,3000` | Origines CORS autorisées |
-
-## Sécurité
-
-- **Authentification** : JWT (access + refresh tokens) via bcrypt
-- **Autorisation** : Role-based (user/admin) avec dependencies FastAPI
-- **Données** : Séparation stricte User ↔ EEGProfile (user_id non réversible)
-- **Audit** : Journalisation des accès (table `audit_logs`)
-- **CORS** : Whitelist configurable
-- **Transport** : HTTPS/WSS en production (reverse proxy Nginx/Caddy)
-- **WebSocket** : Authentification JWT via query parameter
-
-## Tests
-
-### Critères d'acceptation
-
-1. **Latence** : Pipeline complet < 500ms (preprocess + inference + WebSocket)
-2. **Concurrence** : 10 clients WebSocket simultanés sans perte
-3. **RAG** : Réponses cohérentes sur les questions du protocole
-4. **3D** : 60 FPS sur laptop standard
-5. **Sécurité** : Isolation des données EEG entre utilisateurs
-6. **Responsive** : Interface fonctionnelle sur mobile et desktop
 
 ---
 
-**NeuroCap** — Développé dans le cadre d'un projet de recherche en neurofeedback EEG adaptatif.
+## Pipeline DSP v8.0
+
+```
+ESP32 CSV ──► TCPReceiver ──► RealTimeProcessor
+                                 │
+                          Golden Filter (1–45 Hz IIR causal)
+                          EpochExtractor (4 s × 250 Hz, overlap 75%)
+                                 │
+                          Rejet artefacts (amplitude relative)
+                          filtfilt zéro-phase
+                                 │
+                          63 features FeatEng
+                          ├── Spectrales (PSD bandes : delta/theta/alpha/beta/gamma)
+                          ├── Ratios (TBR, ABR, engagement, stress_idx)
+                          ├── Temporelles (Hjorth, Higuchi FD, variance)
+                          └── Ondelettes (db4 niv. 4 : énergie par sous-bande)
+                                 │
+                          LightGBM LOSO → {concentration, stress, uncertain}
+                          confidence seuil 0.60 (CdC §2.5.1)
+                                 │
+                          WSManager.broadcast()
+                          ├── "eeg"     : 1/4 samples (~62 Hz)
+                          ├── "epoch"   : toutes 4 s (features + état)
+                          └── "electrode": heartbeat qualité contact
+```
+
+**Analyse fichier offline** (`file_processor.py`) :  
+EDF / CSV / TXT → rééchantillonnage → Golden Filter → 63 features → LightGBM  
+→ résumé session + tableau époques + auto-sauvegarde rapport + stockage `training_epochs`
+
+---
+
+## Routes API complètes
+
+### Auth — `/api/auth`
+| Méthode | Route | Description |
+|---------|-------|-------------|
+| POST | `/register` | Inscription + tokens JWT |
+| POST | `/login` | Connexion → access + refresh token |
+| POST | `/refresh` | Renouvellement token |
+| GET  | `/me` | Profil courant |
+| POST | `/change-password` | Changement mot de passe |
+
+### Sessions — `/api/sessions`
+| Méthode | Route | Description |
+|---------|-------|-------------|
+| GET  | `/` | Liste sessions patient |
+| POST | `/` | Créer une session |
+| GET  | `/{id}/report` | Rapport complet session |
+| GET  | `/{id}/export` | Export CSV session |
+| GET  | `/export/all` | Export CSV toutes sessions |
+
+### EEG — `/api/eeg`
+| Méthode | Route | Description |
+|---------|-------|-------------|
+| GET  | `/status` | État ESP32, baseline, qualité |
+| GET  | `/analyze` | Rapport DSP détaillé |
+| POST | `/baseline/finalise` | Calcul Z-scores individuels |
+| POST | `/recording/start` | Démarrer enregistrement CSV |
+| POST | `/recording/stop` | Arrêter enregistrement |
+| GET  | `/recording/export` | Télécharger CSV signal |
+| GET  | `/wifi/networks` | Réseaux mémorisés ESP32 |
+| POST | `/wifi/configure` | Configurer WiFi SSID + pwd |
+| POST | `/wifi/use_saved` | Reconnecter réseau mémorisé |
+| POST | `/wifi/reset` | Effacer configuration WiFi |
+| POST | `/analyze_file` | Analyse fichier .edf/.csv/.txt |
+| POST | `/report` | Sauvegarder rapport EEG (live/fichier) |
+| GET  | `/my-reports` | Rapports EEG du patient authentifié |
+| GET  | `/finetuning/status` | Statut fine-tuning IA (activité, epochs, job) |
+| WS   | `/ws/eeg` | Stream temps réel |
+
+### Thérapeute — `/api/therapist`
+| Méthode | Route | Description |
+|---------|-------|-------------|
+| GET  | `/patients` | Liste patients assignés |
+| GET  | `/patients/{id}` | Détail patient |
+| GET  | `/patients/{id}/sessions` | Historique sessions |
+| GET  | `/patients/{id}/profile` | Profil EEG (lecture seule) |
+| GET/POST | `/patients/{id}/notes` | Notes cliniques |
+| GET/POST | `/patients/{id}/recommendation` | Objectif et cible hebdomadaire |
+| PUT  | `/patients/{id}/palier` | Ajustement difficulté P1–P4 |
+| PATCH | `/patients/{id}/active` | Activer/désactiver compte |
+| GET  | `/patients/{id}/export` | Export CSV patient |
+| GET  | `/patients/{id}/eeg-reports` | Rapports EEG du patient |
+
+### Admin — `/api/admin`
+| Méthode | Route | Description |
+|---------|-------|-------------|
+| GET  | `/stats` | KPIs globaux |
+| GET/POST | `/users` | Lister + créer utilisateurs |
+| GET/PUT/DELETE | `/users/{id}` | Détail, modif, suppression |
+| POST | `/assign-patient` | Assigner patient → thérapeute |
+| GET/PUT | `/settings/{key}` | Paramètres système |
+| GET  | `/audit-logs` | Journal d'audit filtré |
+
+---
+
+## Fine-tuning automatique
+
+```
+Chaque nuit à 02:00 UTC :
+  Pour chaque patient avec profil EEG :
+    1. Vérifier activité (≤ 14j inactif, ≥ 3 actions/30j, ≥ 100 epochs fiables)
+    2. Vérifier seuils :
+         v1 : 2 000 epochs haute confiance (≥ 0.85), ≥ 25j depuis calibration
+         v2 : 4 000 nouvelles epochs, ≥ 60j depuis v1
+         drift : accuracy 20 dernières sessions < 85%, ≥ 7j depuis dernier FT
+         maintenance : ≥ 180j depuis dernier FT
+    3. Si conditions OK → LightGBM incremental (init_model) en asyncio.Task
+    4. Sauvegarder checkpoint → models/personal/patient_{id}_v{n}.joblib
+    5. Mettre à jour eeg_profiles + enregistrer finetuning_jobs
+```
+
+Stockage epochs :  
+→ `POST /api/eeg/analyze_file` (patient authentifié) stocke automatiquement  
+   les epochs haute confiance dans `training_epochs` (JSONB 63 features)
+
+---
+
+## Flux utilisateur
+
+```
+Login → /dashboard
+    Patient sans données → empty state : [EEG temps réel] [Analyser un fichier]
+    Patient avec données → EEG Recordings (stat cards + AreaChart + table)
+                         → Sessions neurofeedback (si sessions existantes)
+
+/eeg (EEGSelector)
+    → /eeg-live          Oscilloscope RT · WiFi · baseline · enregistrement CSV
+    → /eeg-file          Upload .edf/.csv/.txt → LightGBM → résultat + auto-save thérapeute
+    → /electrode-guide   Schéma 10-20 · protocole cutané · consentement RGPD
+
+/profile
+    Patient → Profil type A/B/C (ratio α/β + ERD) · métriques EEG · palier · fine-tuning IA
+    Thérapeute → Vue info + changement mot de passe
+    Admin → Vue info + changement mot de passe
+```
+
+---
+
+## Lancement
+
+```bash
+# Backend (port 8001)
+cd app/Backend
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+
+# Frontend (port 5173)
+cd app/Frontend
+npm install
+npm run dev
+
+# Accès
+# App     : http://localhost:5173
+# API docs: http://localhost:8001/docs
+```
+
+---
+
+## Matériel requis
+
+| Composant | Détail |
+|-----------|--------|
+| Électrode | Ag/AgCl (Fp2, M1, M2) |
+| Amplificateur | AD8232 (gain ×100, filtre 0,5–40 Hz) |
+| Microcontrôleur | ESP32 (WiFi 2,4 GHz, sortie TCP CSV 250 Hz) |
+| Réseau | PC et ESP32 sur le même réseau WiFi |
+
+---
+
+**NeuroCap v3.0** — Projet de recherche en neurofeedback EEG adaptatif avec fine-tuning IA personnalisé.
