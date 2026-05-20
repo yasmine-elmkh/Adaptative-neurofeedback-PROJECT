@@ -3,17 +3,17 @@ NeuroCap — Point d'entrée FastAPI
 ===================================
 WebSocket EEG temps réel + routers REST.
 Toutes les opérations DB passent par le client Supabase (plus SQLAlchemy).
+
+v2.1 : pipeline EEG temps réel (ESP32 → DSP → WS /ws/eeg)
+v2.2 : suppression de la session live adaptative (remplacée par EEG live + analyse fichier)
 """
 
 import asyncio
 import json
 import logging
-import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from typing import Optional
 
-import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Depends, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -29,9 +29,9 @@ from app.routes.Profile import router as profile_router
 from app.routes.admin import router as admin_router
 from app.routes.assistant import router as assistant_router
 from app.routes.therapist import router as therapist_router
-from app.services.signal_processing import process_epoch
-from app.services.classifieur import classifier
-from app.services.adaptative_engine import AdaptiveEngine
+from app.routes.eeg import router as eeg_router
+from app.services.eeg.eeg_pipeline import pipeline as eeg_pipeline
+from app.services.finetune.scheduler import start_scheduler, stop_scheduler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,8 +48,26 @@ async def lifespan(app: FastAPI):
     logger.info("NeuroCap démarrage…")
     await init_db()
     logger.info("Base de données initialisée")
+
+    # Démarrer le pipeline EEG temps réel (TCPReceiver + WifiManager + DSP)
+    await eeg_pipeline.start()
+    logger.info("Pipeline EEG démarré")
+
+    # Démarrer le scheduler de fine-tuning automatique
+    try:
+        start_scheduler()
+    except Exception as e:
+        logger.warning(f"Scheduler fine-tuning non démarré (APScheduler manquant?): {e}")
+
     yield
+
+    await eeg_pipeline.stop()
     logger.info("NeuroCap arrêt.")
+
+    try:
+        stop_scheduler()
+    except Exception:
+        pass
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -57,7 +75,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="NeuroCap API",
     description="Système intelligent de neurofeedback EEG adaptatif (CdC 2026)",
-    version="2.0.0",
+    version="2.2.0",
     lifespan=lifespan,
 )
 
@@ -82,245 +100,101 @@ app.include_router(profile_router)
 app.include_router(admin_router)
 app.include_router(assistant_router)
 app.include_router(therapist_router)
+app.include_router(eeg_router)          # /api/eeg/*
 
 
 # ── Health check ─────────────────────────────────────────────────────────────
 
 @app.get("/health", tags=["Système"])
 async def health():
-    return {"status": "ok", "version": "2.0.0"}
+    return {"status": "ok", "version": "2.2.0"}
 
 
-# ── WebSocket EEG temps réel ──────────────────────────────────────────────────
+# ── WebSocket EEG Temps Réel ──────────────────────────────────────────────────
 #
-# Chemin : ws://host/ws/session/{session_id}?token=<access_token>
-# Le frontend (SessionLive.jsx) s'y connecte via useSessionStore().connect(id)
+# Chemin : ws://host/ws/eeg?token=<access_token>
+# Diffuse : type="eeg" (62 Hz), type="epoch" (toutes 4s),
+#           type="electrode" (heartbeat), type="esp32_status"
 #
-# Protocole :
-#   → Client envoie : {"samples": [float, ...]}   (1000 flottants = 4s @ 250Hz)
-#     ou              {"action": "pause"|"resume"|"set_feedback_mode:visual"}
-#   ← Serveur envoie : WSFrame JSON toutes les ~500ms
-#
-# Durée max : 40 min = 6 blocs × 3 min + transitions
+# Le token JWT est optionnel (lecture publique du signal).
+# Pour lier le signal à une session, le frontend envoie :
+#   {"command": "SET_SESSION", "session_id": "<uuid>"}
 # ─────────────────────────────────────────────────────────────────────────────
 
-@app.websocket("/ws/session/{session_id}")
-async def ws_eeg_session(
-    session_id: str,
+@app.websocket("/ws/eeg")
+async def ws_eeg(
     websocket: WebSocket,
     token: Optional[str] = Query(None),
     db: AsyncClient = Depends(get_db),
 ):
-    # ── 1. Authentification par query-param token ──────────────────────────────
-    if not token:
-        await websocket.close(code=4001, reason="Token manquant")
+    ws_mgr = eeg_pipeline.ws_manager
+    if ws_mgr is None:
+        await websocket.close(code=1011, reason="Pipeline EEG non initialisé")
         return
 
-    user_id = await get_token_user_id(token, db)
-    if not user_id:
-        await websocket.close(code=4001, reason="Token invalide")
+    await ws_mgr.connect(websocket)
+
+    st = eeg_pipeline.state
+
+    # Message d'initialisation
+    try:
+        await websocket.send_text(json.dumps({
+            "type":              "init",
+            "esp32_connected":   st.esp32_connected,
+            "esp32_ip":          st.esp32_ip,
+            "wifi_configured":   st.wifi_configured,
+            "esp32_ap_detected": st.esp32_ap_detected,
+            "baseline_ok":       eeg_pipeline.rt.epocher.pipeline.has_baseline(),
+            **eeg_pipeline.electrode_mon.status_detail,
+        }))
+    except Exception as e:
+        logger.warning(f"[WS/EEG] Init failed: {e}")
+        ws_mgr.disconnect(websocket)
         return
 
-    # ── 2. Vérifier que la session appartient à l'utilisateur ─────────────────
-    sess_resp = await (
-        db.table("sessions")
-        .select("*")
-        .eq("id", session_id)
-        .eq("user_id", user_id)
-        .execute()
-    )
-    session = sess_resp.data[0] if sess_resp.data else None
-    if not session:
-        await websocket.close(code=4004, reason="Session introuvable")
-        return
-
-    await websocket.accept()
-    logger.info(f"WS ouvert — session={session_id} user={user_id}")
-
-    # ── 3. Charger le profil utilisateur pour le moteur adaptatif ─────────────
-    profile_resp = await (
-        db.table("eeg_profiles")
-        .select("current_threshold,palier")
-        .eq("user_id", user_id)
-        .execute()
-    )
-    profile = profile_resp.data[0] if profile_resp.data else None
-    initial_threshold = float(profile["current_threshold"]) if profile and profile.get("current_threshold") else 0.5
-    initial_palier = profile["palier"] if profile and profile.get("palier") else "P1_INITIATION"
-
-    engine = AdaptiveEngine(initial_threshold=initial_threshold, palier=initial_palier)
-
-    # Marquer la session comme "running" dans Supabase
-    now_iso = datetime.now(timezone.utc).isoformat()
-    await (
-        db.table("sessions")
-        .update({"status": "running", "started_at": now_iso})
-        .eq("id", session_id)
-        .execute()
-    )
-
-    total_conc, total_stress, epoch_count = 0.0, 0.0, 0
-    block_start_time = datetime.now(timezone.utc)
-    feedback_mode = session.get("feedback_mode", "visual")
-    is_paused = False
-
-    # File d'attente pour les messages entrants du client
-    incoming: asyncio.Queue = asyncio.Queue()
-
-    async def _reader():
-        """Tâche de fond : lit les messages client et les enfile."""
-        try:
-            while True:
-                raw = await websocket.receive_text()
-                await incoming.put(raw)
-        except Exception:
-            await incoming.put(None)  # signal d'arrêt
-
-    reader_task = asyncio.create_task(_reader())
+    await ws_mgr.register(websocket)
 
     try:
         while True:
-            # ── Tick 500ms — vider les messages en attente ─────────────────────
-            await asyncio.sleep(0.5)
-
-            while not incoming.empty():
-                raw = incoming.get_nowait()
-                if raw is None:
-                    raise WebSocketDisconnect()
+            try:
+                raw = await websocket.receive_text()
                 try:
-                    msg = json.loads(raw)
-                    action = msg.get("action", "")
-                    if action == "pause":
-                        is_paused = True
-                    elif action == "resume":
-                        is_paused = False
-                    elif action.startswith("set_feedback_mode:"):
-                        feedback_mode = action.split(":", 1)[1]
+                    cmd = json.loads(raw).get("command", "")
+                    if cmd == "FINALISE_BASELINE":
+                        ok = eeg_pipeline.rt.epocher.pipeline.finalise_baseline()
+                        await websocket.send_text(json.dumps({
+                            "type": "baseline_ready", "success": ok,
+                        }))
+                    elif cmd == "START_REC":
+                        path = eeg_pipeline.start_recording()
+                        await websocket.send_text(json.dumps({
+                            "type": "rec_started", "file": path,
+                        }))
+                    elif cmd == "STOP_REC":
+                        path = eeg_pipeline.stop_recording()
+                        await websocket.send_text(json.dumps({
+                            "type": "rec_stopped", "file": path,
+                        }))
+                    elif cmd == "ANALYZE_NOW":
+                        rm = eeg_pipeline.rt.raw_metrics()
+                        es = eeg_pipeline.electrode_mon.status_detail
+                        await websocket.send_text(json.dumps({
+                            "type":           "report",
+                            "esp32_ip":       st.esp32_ip,
+                            "esp32_connected": st.esp32_connected,
+                            "epoch_total":    eeg_pipeline.rt.epocher.n_total,
+                            "epoch_accepted": eeg_pipeline.rt.epocher.n_accepted,
+                            "epoch_rejected": eeg_pipeline.rt.epocher.n_rejected,
+                            "cal_progress":   eeg_pipeline.rt.epocher.pipeline.cal_progress,
+                            "baseline_ok":    eeg_pipeline.rt.epocher.pipeline.has_baseline(),
+                            **es, **rm,
+                        }, default=str))
                 except Exception:
                     pass
-
-            if is_paused:
-                await websocket.send_json({"type": "paused"})
-                continue
-
-            # ── Générer / traiter des données EEG ─────────────────────────────
-            # En production, les samples arrivent du frontend (ESP32 via BLE/USB).
-            # En développement, on génère un epoch synthétique.
-            epoch = _demo_epoch()
-
-            # ── Pipeline signal → features spectrales ─────────────────────────
-            features = process_epoch(epoch)
-
-            # ── Classification → concentration / stress ────────────────────────
-            prediction = classifier.predict(features)
-
-            # ── Moteur adaptatif → seuil + bloc ───────────────────────────────
-            adaptive = engine.update(prediction)
-
-            # ── Temps écoulé dans le bloc courant (3 min max) ─────────────────
-            now = datetime.now(timezone.utc)
-            block_time_sec = (now - block_start_time).total_seconds()
-            if block_time_sec >= 180:
-                block_start_time = now
-
-            # ── Accumuler les métriques pour le score final ────────────────────
-            conc = prediction["concentration_rate"]
-            stress = prediction["stress_rate"]
-            total_conc += conc
-            total_stress += stress
-            epoch_count += 1
-
-            # ── Persister l'événement dans Supabase ───────────────────────────
-            await (
-                db.table("session_events")
-                .insert({
-                    "id": str(uuid.uuid4()),
-                    "session_id": session_id,
-                    "concentration_rate": round(conc, 4),
-                    "stress_rate": round(stress, 4),
-                    "confidence": round(prediction.get("confidence", 0.0), 4),
-                    "tbr": round(prediction.get("tbr", 0.0), 4),
-                    "ei": round(prediction.get("ei", 0.0), 4),
-                    "signal_quality": round(features.get("signal_quality", 0.0), 4),
-                    "is_artifact": bool(features.get("is_artifact", False)),
-                    "feedback_mode": feedback_mode,
-                    "feedback_active": prediction.get("confidence", 0.0) >= 60.0,
-                    "block_number": adaptive["block_number"],
-                    "created_at": now.isoformat(),
-                })
-                .execute()
-            )
-
-            # ── Trame WebSocket → frontend ─────────────────────────────────────
-            frame = {
-                "timestamp": now.isoformat(),
-                "concentration": round(conc / 100, 4),
-                "stress": round(stress / 100, 4),
-                "features": {
-                    "alpha": round(features.get("powers", {}).get("alpha", 0.0), 4),
-                    "theta_beta_ratio": round(prediction.get("tbr", 0.0), 4),
-                    "engagement_index": round(prediction.get("ei", 0.0), 4),
-                    "iapf": round(prediction.get("iapf", 10.0), 2),
-                },
-                "threshold": adaptive["threshold"],
-                "ewma": round(adaptive["ewma_concentration"] / 100, 4),
-                "feedback_command": {
-                    "intensity": min(1.0, conc / 100),
-                    "is_success": (conc / 100) > adaptive["threshold"],
-                },
-                "signal_quality": features.get("signal_quality", 0.0),
-                "block_number": adaptive["block_number"],
-                "block_time_sec": round(block_time_sec, 1),
-                "success_rate": round(
-                    engine.state.session_total_success
-                    / max(1, engine.state.session_total_epochs),
-                    4,
-                ),
-            }
-            await websocket.send_json(frame)
-
-    except WebSocketDisconnect:
-        logger.info(f"WS fermé normalement — session={session_id}")
-    except Exception as exc:
-        logger.error(f"WS erreur — session={session_id}: {exc}", exc_info=True)
+            except WebSocketDisconnect:
+                break
+            except Exception:
+                break
     finally:
-        reader_task.cancel()
+        ws_mgr.disconnect(websocket)
 
-        # ── Finaliser la session dans Supabase ─────────────────────────────────
-        final = {
-            "status": "completed",
-            "ended_at": datetime.now(timezone.utc).isoformat(),
-        }
-        if epoch_count:
-            final["avg_concentration"] = round(total_conc / epoch_count, 2)
-            final["avg_stress"] = round(total_stress / epoch_count, 2)
-            final["score"] = round(engine.state.session_score, 1)
-            final["n_blocks"] = engine.state.block_number
-            final["recommendations"] = engine.get_recommendations()
-
-        await (
-            db.table("sessions")
-            .update(final)
-            .eq("id", session_id)
-            .execute()
-        )
-        logger.info(f"Session {session_id} terminée — epochs={epoch_count}")
-
-
-# ── Données EEG de démo (sans matériel) ──────────────────────────────────────
-
-_rng = np.random.default_rng(42)
-_t = np.linspace(0, 4, 1000)  # 4s @ 250Hz
-
-
-def _demo_epoch() -> np.ndarray:
-    """
-    Génère un epoch EEG synthétique réaliste (Fp2 mono-canal).
-    Compose les bandes alpha (10 Hz), theta (6 Hz), beta (20 Hz) avec bruit
-    pour simuler le signal AD8232 en l'absence de matériel physique.
-    """
-    alpha = 10.0 * np.sin(2 * np.pi * 10 * _t + _rng.uniform(0, 2 * np.pi))
-    theta = 5.0 * np.sin(2 * np.pi * 6 * _t + _rng.uniform(0, 2 * np.pi))
-    beta = 3.0 * np.sin(2 * np.pi * 20 * _t + _rng.uniform(0, 2 * np.pi))
-    noise = _rng.normal(0, 2.0, 1000)
-    return (alpha + theta + beta + noise).astype(np.float32)
