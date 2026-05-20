@@ -9,7 +9,7 @@ import {
   ArrowLeft, Brain, Download, Star, Plus, AlertTriangle,
   TrendingUp, TrendingDown, Minus, Activity, Target, Zap,
   UserX, UserCheck, ChevronDown, Check, Calendar, BarChart2,
-  MessageSquareText, Settings2,
+  MessageSquareText, Settings2, FileText,
 } from 'lucide-react'
 
 /* ─── constants ───────────────────────────────────────────────────────────── */
@@ -452,6 +452,125 @@ function ActionsPanel({ patientId, patient, profile, onRefresh }) {
   )
 }
 
+/* ─── EEG Reports panel ───────────────────────────────────────────────────── */
+const DOMINANT_STATE = {
+  concentration: { label: 'Concentration', color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/25', icon: '🎯' },
+  stress:        { label: 'Stress',         color: 'text-red-400',     bg: 'bg-red-500/10',     border: 'border-red-500/25',     icon: '⚡' },
+  focused:       { label: 'Concentré',      color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/25', icon: '🎯' },
+  stressed:      { label: 'Stressé',        color: 'text-red-400',     bg: 'bg-red-500/10',     border: 'border-red-500/25',     icon: '⚡' },
+  relaxed:       { label: 'Détendu',        color: 'text-blue-400',    bg: 'bg-blue-500/10',    border: 'border-blue-500/25',    icon: '😌' },
+  neutral:       { label: 'Neutre',         color: 'text-nc-muted',    bg: 'bg-nc-surface2',    border: 'border-nc-border',      icon: '➖' },
+  inconnu:       { label: 'Inconnu',        color: 'text-nc-muted',    bg: 'bg-nc-surface2',    border: 'border-nc-border',      icon: '❓' },
+}
+
+function EEGReportsPanel({ patientId }) {
+  const [reports, setReports] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    therapistApi.getEEGReports(patientId)
+      .then(setReports)
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [patientId])
+
+  if (loading) return (
+    <div className="flex justify-center py-12">
+      <span className="w-6 h-6 border-2 border-nc-accent/30 border-t-nc-accent rounded-full animate-spin" />
+    </div>
+  )
+
+  if (!reports.length) return (
+    <div className="card p-12 text-center space-y-3">
+      <Brain className="w-10 h-10 mx-auto opacity-20 text-nc-muted" />
+      <p className="text-nc-muted text-sm">Aucun rapport EEG partagé</p>
+      <p className="text-xs text-nc-muted/60">Le patient peut envoyer des rapports depuis les pages EEG Live et Analyse de fichier.</p>
+    </div>
+  )
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-nc-muted">{reports.length} rapport(s) reçu(s)</p>
+      </div>
+
+      {reports.map(r => {
+        const dom = DOMINANT_STATE[r.dominant_state] ?? DOMINANT_STATE.inconnu
+        const conf = Math.round((r.mean_confidence ?? 0) * 100)
+        const isFile = r.type === 'file'
+
+        return (
+          <div key={r.id} className="card p-5 space-y-4">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-3">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0
+                                ${isFile ? 'bg-purple-500/15' : 'bg-cyan-500/15'}`}>
+                  {isFile
+                    ? <FileText className="w-4 h-4 text-purple-400" />
+                    : <Activity className="w-4 h-4 text-nc-accent" />}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-nc-text">
+                    {isFile ? `Fichier : ${r.filename ?? 'inconnu'}` : 'Session EEG Live'}
+                  </p>
+                  <p className="text-[10px] text-nc-muted">
+                    {new Date(r.created_at).toLocaleString('fr-FR')}
+                    {r.duration_s ? ` · ${Math.round(r.duration_s)}s` : ''}
+                  </p>
+                </div>
+              </div>
+              <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border
+                               ${dom.bg} ${dom.color} ${dom.border}`}>
+                {dom.icon} {dom.label}
+              </span>
+            </div>
+
+            {/* Stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Époques OK',  value: r.n_epochs_accepted ?? 0,                color: 'text-emerald-400' },
+                { label: 'Rejetées',    value: r.n_epochs_rejected ?? 0,                color: 'text-red-400'     },
+                { label: 'Confiance',   value: `${conf}%`,                               color: conf >= 60 ? 'text-nc-accent' : 'text-yellow-400' },
+                { label: 'Durée',       value: r.duration_s ? `${Math.round(r.duration_s)}s` : '—', color: 'text-nc-text' },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="bg-nc-surface2 rounded-xl p-2.5 text-center">
+                  <p className={`text-sm font-bold font-mono ${color}`}>{value}</p>
+                  <p className="text-[10px] text-nc-muted mt-0.5">{label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Probabilités */}
+            <div className="space-y-2">
+              {[
+                { label: 'Concentration', pct: r.concentration_pct ?? 0, color: 'bg-emerald-500' },
+                { label: 'Stress',        pct: r.stress_pct        ?? 0, color: 'bg-red-500'     },
+                { label: 'Incertain',     pct: r.uncertain_pct     ?? 0, color: 'bg-yellow-500'  },
+              ].map(({ label, pct, color }) => (
+                <div key={label}>
+                  <div className="flex justify-between text-[10px] mb-0.5">
+                    <span className="text-nc-muted">{label}</span>
+                    <span className="font-mono text-nc-text">{Math.round(pct)}%</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-nc-surface2 overflow-hidden">
+                    <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {r.notes && (
+              <div className="p-3 rounded-xl bg-nc-surface2 text-xs text-nc-text">{r.notes}</div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+
 /* ─── main page ──────────────────────────────────────────────────────────── */
 export default function TherapistPatientDetail() {
   const { patientId } = useParams()
@@ -510,10 +629,11 @@ export default function TherapistPatientDetail() {
   }
 
   const TABS = [
-    { key: 'overview', label: 'Vue d\'ensemble' },
-    { key: 'sessions', label: `Sessions (${sessions.length})` },
-    { key: 'actions',  label: 'Actions' },
-    { key: 'notes',    label: 'Notes cliniques' },
+    { key: 'overview',    label: 'Vue d\'ensemble' },
+    { key: 'sessions',    label: `Sessions (${sessions.length})` },
+    { key: 'eeg-reports', label: 'Rapports EEG' },
+    { key: 'actions',     label: 'Actions' },
+    { key: 'notes',       label: 'Notes cliniques' },
   ]
 
   const palierLabel = profile?.palier
@@ -699,6 +819,11 @@ export default function TherapistPatientDetail() {
                 <SessionsTable sessions={sessions} />
               </div>
             </div>
+          )}
+
+          {/* ══ TAB: Rapports EEG ══ */}
+          {tab === 'eeg-reports' && (
+            <EEGReportsPanel patientId={patientId} />
           )}
 
           {/* ══ TAB: Actions ══ */}

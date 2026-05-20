@@ -7,13 +7,16 @@ import Login              from './pages/Login'
 import Register           from './pages/Register'
 import Dashboard          from './pages/DashboardPage'
 import AdminDashboard     from './pages/AdminDashboard'
-import SessionLive        from './pages/SessionLive'
 import History            from './pages/History'
 import Assistant          from './pages/Assistant'
 import Profile            from './pages/Profile'
 import AdminPanel         from './pages/AdminPanel'
 import TherapistDashboard      from './pages/TherapistDashboard'
 import TherapistPatientDetail  from './pages/TherapistPatientDetail'
+import EEGSelector             from './pages/EEGSelector'
+import EEGLive                 from './pages/EEGLive'
+import EEGFile                 from './pages/EEGFile'
+import ElectrodeGuide          from './pages/ElectrodeGuide'
 
 import { useAuthStore } from './stores'
 
@@ -83,12 +86,16 @@ export default function App() {
 
         <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
           <Route path="/dashboard"    element={<DashboardRoute />} />
-          <Route path="/session/:id"  element={<SessionLive />} />
-          <Route path="/session/new"  element={<SessionLive />} />
           <Route path="/history"      element={<History />} />
           <Route path="/history/:id"  element={<History />} />
           <Route path="/assistant"    element={<Assistant />} />
           <Route path="/profile"      element={<Profile />} />
+
+          {/* EEG — sélecteur de mode + pages spécialisées */}
+          <Route path="/eeg"              element={<EEGSelector />} />
+          <Route path="/eeg-live"         element={<EEGLive />} />
+          <Route path="/eeg-file"         element={<EEGFile />} />
+          <Route path="/electrode-guide"  element={<ElectrodeGuide />} />
 
           {/* Admin only */}
           <Route path="/admin" element={

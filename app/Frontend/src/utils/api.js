@@ -12,8 +12,8 @@ export const auth = {
     API.post('/auth/register', { email, password, first_name: firstName, last_name: lastName }).then(res => res.data),
   login: (email, password) => API.post('/auth/login', { email, password }).then(res => res.data),
   me: () => API.get('/auth/me').then(res => res.data),
-  changePassword: (currentPassword, newPassword) =>
-    API.post('/auth/change-password', { current_password: currentPassword, new_password: newPassword }),
+  changePassword: (newPassword) =>
+    API.post('/auth/change-password', { new_password: newPassword }),
 }
 
 export const profile = {
@@ -44,9 +44,13 @@ export const admin = {
   stats: () => API.get('/admin/stats').then(r => r.data),
 
   // Users (enriched with session stats)
-  users: (limit = 50, offset = 0, roleFilter = null, includeDeleted = false) =>
+  users: (limit = 50, offset = 0, roleFilter = null) =>
     API.get('/admin/users', {
-      params: { limit, offset, role_filter: roleFilter || undefined, include_deleted: includeDeleted },
+      params: {
+        limit,
+        ...(offset > 0 && { offset }),
+        ...(roleFilter && { role_filter: roleFilter }),
+      },
     }).then(r => r.data),
   getUser: (id) => API.get(`/admin/users/${id}`).then(r => r.data),
   createUser: (data) => API.post('/admin/users', data).then(r => r.data),
@@ -89,9 +93,33 @@ export const therapist = {
   adjustPalier: (patientId, palier) => API.put(`/therapist/patients/${patientId}/palier`, { palier }),
   toggleActive: (patientId) => API.patch(`/therapist/patients/${patientId}/active`),
   exportPatient: (patientId) => API.get(`/therapist/patients/${patientId}/export`, { responseType: 'blob' }),
+  getEEGReports: (patientId, limit = 50) => API.get(`/therapist/patients/${patientId}/eeg-reports`, { params: { limit } }).then(r => r.data),
 }
 
 export const createSessionWS = (sessionId) => {
   const token = localStorage.getItem('neurocap_token')
   return new WebSocket(`/ws/session/${sessionId}?token=${token}`)
+}
+
+// ── EEG Temps Réel (/api/eeg/*) ──────────────────────────────────────────────
+export const eeg = {
+  status:          () => API.get('/eeg/status').then(r => r.data),
+  analyze:         () => API.get('/eeg/analyze').then(r => r.data),
+  finaliseBaseline: () => API.post('/eeg/baseline/finalise').then(r => r.data),
+  startRecording:  () => API.post('/eeg/recording/start').then(r => r.data),
+  stopRecording:   () => API.post('/eeg/recording/stop').then(r => r.data),
+  wifiNetworks:    () => API.get('/eeg/wifi/networks').then(r => r.data),
+  wifiConfigure:   (ssid, password) => API.post('/eeg/wifi/configure', { ssid, password }).then(r => r.data),
+  wifiUseSaved:    (ssid)           => API.post('/eeg/wifi/use_saved', { ssid }).then(r => r.data),
+  wifiReset:       ()               => API.post('/eeg/wifi/reset').then(r => r.data),
+  analyzeFile: (file) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return API.post('/eeg/analyze_file', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data)
+  },
+  sendReport:       (payload)      => API.post('/eeg/report', payload).then(r => r.data),
+  myReports:        (limit = 100)  => API.get('/eeg/my-reports', { params: { limit } }).then(r => r.data),
+  finetuningStatus: ()             => API.get('/eeg/finetuning/status').then(r => r.data),
 }

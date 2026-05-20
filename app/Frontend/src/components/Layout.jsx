@@ -4,9 +4,9 @@ import { useTranslation } from 'react-i18next'
 import { useTheme } from '../context/ThemeContext'
 import { useAuthStore } from '../stores'
 import {
-  Brain, LayoutDashboard, Activity, History, MessageSquareText,
+  LayoutDashboard, Brain, History, MessageSquareText,
   CircleUser, LogOut, Sun, Moon, Monitor, ChevronDown, Menu, X,
-  Globe, Shield, Users,
+  Globe, Shield, Users, BookOpen,
 } from 'lucide-react'
 
 /* ── Theme cycle: auto → light → dark → auto ── */
@@ -135,13 +135,14 @@ export default function Layout() {
   const role = user?.role ?? 'patient'
 
   const NAV_ITEMS = [
-    { to: '/dashboard',   Icon: LayoutDashboard,    key: 'nav.dashboard', roles: null,                    exclude: [] },
-    { to: '/session/new', Icon: Activity,            key: 'nav.session',   roles: null,                    exclude: ['admin', 'therapist'] },
-    { to: '/history',     Icon: History,             key: 'nav.history',   roles: null,                    exclude: ['admin', 'therapist'] },
-    { to: '/assistant',   Icon: MessageSquareText,   key: 'nav.assistant', roles: null,                    exclude: ['admin', 'therapist'] },
-    { to: '/profile',     Icon: CircleUser,          key: 'nav.profile',   roles: null,                    exclude: [] },
-    { to: '/therapist',   Icon: Users,               key: 'nav.therapist', roles: ['therapist', 'admin'],  exclude: ['admin'] },
-    { to: '/admin',       Icon: Shield,              key: 'nav.admin',     roles: ['admin'],               exclude: [] },
+    { to: '/dashboard',       Icon: LayoutDashboard,    key: 'nav.dashboard',      roles: null,                   exclude: []                    },
+    { to: '/eeg',             Icon: Brain,              key: 'nav.eeg',            roles: null,                   exclude: ['admin', 'therapist'] },
+    { to: '/electrode-guide', Icon: BookOpen,           key: 'nav.electrodeGuide', roles: null,                   exclude: ['admin', 'therapist'] },
+    { to: '/history',         Icon: History,            key: 'nav.history',        roles: null,                   exclude: ['admin', 'therapist'] },
+    { to: '/assistant',       Icon: MessageSquareText,  key: 'nav.assistant',      roles: null,                   exclude: ['admin', 'therapist'] },
+    { to: '/profile',         Icon: CircleUser,         key: 'nav.profile',        roles: null,                   exclude: []                    },
+    { to: '/therapist',       Icon: Users,              key: 'nav.therapist',      roles: ['therapist', 'admin'], exclude: ['admin']              },
+    { to: '/admin',           Icon: Shield,             key: 'nav.admin',          roles: ['admin'],              exclude: []                    },
   ].filter(item =>
     (!item.roles || item.roles.includes(role)) &&
     !item.exclude.includes(role)
@@ -163,10 +164,11 @@ export default function Layout() {
 
           {/* ── Logo ── */}
           <NavLink to="/dashboard" className="flex items-center gap-2.5 shrink-0 me-4">
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center"
-                 style={{ background: 'linear-gradient(135deg, rgb(var(--nc-accent)), rgb(var(--nc-accent)/0.6))' }}>
-              <Brain className="w-4 h-4 text-white" />
-            </div>
+            <img
+              src="/NeuroCap_Logo.png"
+              alt="NeuroCap"
+              className="w-8 h-8 rounded-xl object-contain"
+            />
             <span className="font-bold text-lg text-nc-text tracking-tight">NeuroCap</span>
           </NavLink>
 
@@ -249,7 +251,7 @@ export default function Layout() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-2.5 mb-6 px-2">
-              <Brain className="w-6 h-6 text-nc-accent" />
+              <img src="/NeuroCap_Logo.png" alt="NeuroCap" className="w-7 h-7 rounded-lg object-contain" />
               <span className="font-bold text-nc-text">NeuroCap</span>
             </div>
 
@@ -288,16 +290,36 @@ export default function Layout() {
         <Outlet />
       </main>
 
-      {/* ══════════════════════ FOOTER (desktop only) ══════════════════════ */}
-      <footer className="hidden md:block border-t border-nc-border py-5">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-xs text-nc-muted">
-            <Brain className="w-3.5 h-3.5 text-nc-accent" />
-            <span>© 2026 NeuroCap — Easy Medical Device</span>
+      {/* ══════════════════════ FOOTER ══════════════════════ */}
+      <footer className="border-t border-nc-border py-6 mb-16 md:mb-0">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-4">
+          {/* Top row */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-2.5">
+              <img src="/NeuroCap_Logo.png" alt="NeuroCap" className="w-7 h-7 rounded-lg object-contain" />
+              <span className="font-bold text-sm text-nc-text">NeuroCap</span>
+              <span className="text-xs text-nc-muted">— Easy Medical Device</span>
+            </div>
+            <div className="flex items-center gap-4 text-xs text-nc-muted">
+              <a href="#" className="hover:text-nc-text transition-colors">À propos</a>
+              <a href="#" className="hover:text-nc-text transition-colors">Documentation</a>
+              <a href="#" className="hover:text-nc-text transition-colors">Contact</a>
+              <a href="#" className="hover:text-nc-text transition-colors">Confidentialité</a>
+            </div>
           </div>
-          <span className="text-[10px] text-nc-muted/60">
-            AD8232 + ESP32 · Fp2 · 250 Hz · CDC §2.5
-          </span>
+          {/* Bottom row */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-3 border-t border-nc-border/50">
+            <span className="text-[11px] text-nc-muted/70">© 2026 NeuroCap — Tous droits réservés</span>
+            <div className="flex items-center gap-3 text-[10px] text-nc-muted/50">
+              <span>AD8232 + ESP32</span>
+              <span className="w-1 h-1 rounded-full bg-nc-muted/30" />
+              <span>Fp2 · 250 Hz</span>
+              <span className="w-1 h-1 rounded-full bg-nc-muted/30" />
+              <span>CDC §2.5</span>
+              <span className="w-1 h-1 rounded-full bg-nc-muted/30" />
+              <span>v2.0.0</span>
+            </div>
+          </div>
         </div>
       </footer>
 
