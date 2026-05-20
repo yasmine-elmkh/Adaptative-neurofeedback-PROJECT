@@ -26,6 +26,13 @@ torch>=2.0.0
 mne>=1.5.0
 pywavelets>=1.4.0
 
+# ML — LightGBM classifier + fine-tuning
+lightgbm>=4.0.0
+joblib>=1.3.0
+
+# Scheduler — fine-tuning automatique nocturne
+APScheduler>=3.10.0
+
 # Media storage (Cloudinary)
 cloudinary>=1.40.0
 

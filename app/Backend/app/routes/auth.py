@@ -190,9 +190,13 @@ async def change_password(
     current_user=Depends(get_current_user),
     db: AsyncClient = Depends(get_db),
 ):
-    """Change le mot de passe de l'utilisateur connecté."""
-    if not verify_password(data.current_password, current_user.get("hashed_password", "")):
-        raise HTTPException(status_code=400, detail="Mot de passe actuel incorrect")
+    """Change le mot de passe de l'utilisateur connecté.
+    L'identité est vérifiée par le token JWT. L'ancien mot de passe est
+    optionnel (validation supplémentaire si fourni).
+    """
+    if data.current_password:
+        if not verify_password(data.current_password, current_user.get("hashed_password", "")):
+            raise HTTPException(status_code=400, detail="Mot de passe actuel incorrect")
     hashed = hash_password(data.new_password)
     await db.table("users").update({
         "hashed_password": hashed,

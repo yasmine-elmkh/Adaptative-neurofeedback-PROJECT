@@ -356,6 +356,31 @@ async def toggle_active(
     return Response(status_code=204)
 
 
+# ── EEG Reports ──────────────────────────────────────────────────────────────
+
+@router.get("/patients/{patient_id}/eeg-reports")
+async def get_patient_eeg_reports(
+    patient_id: str,
+    limit: int = Query(50, ge=1, le=200),
+    therapist=Depends(get_therapist_user),
+    db: AsyncClient = Depends(get_db),
+):
+    """Retourne les rapports EEG (live + fichier) envoyés par ce patient."""
+    await _check_assignment(patient_id, therapist, db)
+    try:
+        resp = await (
+            db.table("eeg_reports")
+            .select("*")
+            .eq("patient_id", patient_id)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return resp.data or []
+    except Exception:
+        return []
+
+
 # ── Export CSV ────────────────────────────────────────────────────────────────
 
 @router.get("/patients/{patient_id}/export")

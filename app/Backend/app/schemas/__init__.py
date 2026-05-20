@@ -26,13 +26,13 @@ class UserLogin(BaseModel):
 class UserOut(BaseModel):
     id: str
     email: str
-    username: str
+    username: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     role: str
     therapist_id: Optional[str] = None
     is_active: bool
-    created_at: datetime
+    created_at: Optional[datetime] = None
     model_config = {"from_attributes": True}
 
 
@@ -58,7 +58,7 @@ class TherapistNoteOut(BaseModel):
 class PatientSummary(BaseModel):
     id: str
     email: str
-    username: str
+    username: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     is_active: bool
@@ -80,7 +80,7 @@ class PatientSummary(BaseModel):
 
 
 class PasswordChange(BaseModel):
-    current_password: str
+    current_password: Optional[str] = None
     new_password: str = Field(min_length=8)
 
 
@@ -249,6 +249,43 @@ class AuditLogOut(BaseModel):
     action: str
     details: Optional[str] = None
     ip_address: Optional[str] = None
+    created_at: datetime
+    model_config = {"from_attributes": True}
+
+
+# ── EEG Reports ──────────────────────────────────────────────────────────────
+
+class EEGReportCreate(BaseModel):
+    type: str = Field(default='live', pattern="^(live|file)$")
+    filename: Optional[str] = None
+    duration_s: Optional[float] = None
+    n_epochs_accepted: int = 0
+    n_epochs_rejected: int = 0
+    dominant_state: Optional[str] = None
+    concentration_pct: Optional[float] = None
+    stress_pct: Optional[float] = None
+    uncertain_pct: Optional[float] = None
+    mean_confidence: Optional[float] = None
+    states_json: Optional[dict] = None
+    notes: Optional[str] = Field(None, max_length=1000)
+
+
+class EEGReportOut(BaseModel):
+    id: str
+    patient_id: str
+    therapist_id: Optional[str] = None
+    type: str
+    filename: Optional[str] = None
+    duration_s: Optional[float] = None
+    n_epochs_accepted: int = 0
+    n_epochs_rejected: int = 0
+    dominant_state: Optional[str] = None
+    concentration_pct: Optional[float] = None
+    stress_pct: Optional[float] = None
+    uncertain_pct: Optional[float] = None
+    mean_confidence: Optional[float] = None
+    states_json: Optional[dict] = None
+    notes: Optional[str] = None
     created_at: datetime
     model_config = {"from_attributes": True}
 

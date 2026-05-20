@@ -113,12 +113,11 @@ async def get_stats(
 
 # ── List users (enriched with session stats) ──────────────────────────────────
 
-@router.get("/users", response_model=list[UserWithStats])
+@router.get("/users")  # No response_model — avoids Pydantic validation errors on null DB fields
 async def list_users(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     role_filter: Optional[str] = Query(None, description="Filtrer par rôle"),
-    include_deleted: bool = Query(False),
     admin=Depends(get_admin_user),
     db: AsyncClient = Depends(get_db),
 ):
@@ -127,30 +126,35 @@ async def list_users(
         query = db.table("users").select("*").order("created_at", desc=True)
         if role_filter:
             query = query.eq("role", role_filter)
-        if not include_deleted:
+        try:
             query = query.is_("deleted_at", "null")
-        resp = await query.range(offset, offset + limit - 1).execute()
-    except Exception:
-        # deleted_at may not exist — retry without that filter
-        query = db.table("users").select("*").order("created_at", desc=True)
-        if role_filter:
-            query = query.eq("role", role_filter)
-        resp = await query.range(offset, offset + limit - 1).execute()
+            resp = await query.range(offset, offset + limit - 1).execute()
+        except Exception:
+            # deleted_at column may not exist
+            query2 = db.table("users").select("*").order("created_at", desc=True)
+            if role_filter:
+                query2 = query2.eq("role", role_filter)
+            resp = await query2.range(offset, offset + limit - 1).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur chargement utilisateurs: {str(e)}")
+
     users = resp.data or []
     if not users:
         return []
 
-    # Fetch session stats for these users in a single query
+    # Fetch session stats in a single query
     user_ids = [u["id"] for u in users]
-    sess_resp = await (
-        db.table("sessions")
-        .select("user_id,score,status,created_at")
-        .in_("user_id", user_ids)
-        .execute()
-    )
-    all_sessions = sess_resp.data or []
+    try:
+        sess_resp = await (
+            db.table("sessions")
+            .select("user_id,score,status,created_at")
+            .in_("user_id", user_ids)
+            .execute()
+        )
+        all_sessions = sess_resp.data or []
+    except Exception:
+        all_sessions = []
 
-    # Aggregate per user
     user_sessions: dict = defaultdict(list)
     for s in all_sessions:
         user_sessions[s["user_id"]].append(s)
@@ -161,10 +165,19 @@ async def list_users(
         sess = user_sessions[uid]
         completed_scores = [s["score"] for s in sess if s.get("status") == "completed" and s.get("score") is not None]
         last_date = max((s["created_at"] for s in sess), default=None) if sess else None
+        # Build a clean dict with fallbacks for every field — never raises Pydantic errors
         result.append({
-            **u,
-            "session_count": len(sess),
-            "avg_score": round(sum(completed_scores) / len(completed_scores), 1) if completed_scores else None,
+            "id":                u.get("id", ""),
+            "email":             u.get("email", ""),
+            "username":          u.get("username") or (u.get("email", "")).split("@")[0],
+            "first_name":        u.get("first_name") or "",
+            "last_name":         u.get("last_name") or "",
+            "role":              u.get("role") or "patient",
+            "therapist_id":      u.get("therapist_id"),
+            "is_active":         bool(u.get("is_active", True)),
+            "created_at":        u.get("created_at"),
+            "session_count":     len(sess),
+            "avg_score":         round(sum(completed_scores) / len(completed_scores), 1) if completed_scores else None,
             "last_session_date": last_date,
         })
     return result
@@ -172,7 +185,7 @@ async def list_users(
 
 # ── Get single user ───────────────────────────────────────────────────────────
 
-@router.get("/users/{user_id}", response_model=UserWithStats)
+@router.get("/users/{user_id}")  # No response_model
 async def get_user(
     user_id: str,
     admin=Depends(get_admin_user),
@@ -188,31 +201,61 @@ async def get_user(
     completed_scores = [s["score"] for s in sess if s.get("status") == "completed" and s.get("score") is not None]
     last_date = max((s["created_at"] for s in sess), default=None) if sess else None
     return {
-        **u,
-        "session_count": len(sess),
-        "avg_score": round(sum(completed_scores) / len(completed_scores), 1) if completed_scores else None,
+        "id":                u.get("id", ""),
+        "email":             u.get("email", ""),
+        "username":          u.get("username") or (u.get("email", "")).split("@")[0],
+        "first_name":        u.get("first_name") or "",
+        "last_name":         u.get("last_name") or "",
+        "role":              u.get("role") or "patient",
+        "therapist_id":      u.get("therapist_id"),
+        "is_active":         bool(u.get("is_active", True)),
+        "created_at":        u.get("created_at"),
+        "session_count":     len(sess),
+        "avg_score":         round(sum(completed_scores) / len(completed_scores), 1) if completed_scores else None,
         "last_session_date": last_date,
     }
 
 
 # ── List therapists (for patient assignment dropdown) ─────────────────────────
 
-@router.get("/therapists", response_model=list[UserOut])
+@router.get("/therapists")  # No response_model
 async def list_therapists(
     admin=Depends(get_admin_user),
     db: AsyncClient = Depends(get_db),
 ):
     """Liste tous les thérapeutes actifs (pour le menu déroulant d'assignation)."""
-    resp = await (
-        db.table("users")
-        .select("*")
-        .eq("role", "therapist")
-        .eq("is_active", True)
-        .is_("deleted_at", "null")
-        .order("last_name")
-        .execute()
-    )
-    return resp.data or []
+    try:
+        resp = await (
+            db.table("users")
+            .select("*")
+            .eq("role", "therapist")
+            .eq("is_active", True)
+            .is_("deleted_at", "null")
+            .order("last_name")
+            .execute()
+        )
+    except Exception:
+        resp = await (
+            db.table("users")
+            .select("*")
+            .eq("role", "therapist")
+            .eq("is_active", True)
+            .execute()
+        )
+    return [
+        {
+            "id":           u.get("id", ""),
+            "email":        u.get("email", ""),
+            "username":     u.get("username") or (u.get("email", "")).split("@")[0],
+            "first_name":   u.get("first_name") or "",
+            "last_name":    u.get("last_name") or "",
+            "role":         u.get("role", "therapist"),
+            "therapist_id": u.get("therapist_id"),
+            "is_active":    bool(u.get("is_active", True)),
+            "created_at":   u.get("created_at"),
+        }
+        for u in (resp.data or [])
+    ]
 
 
 # ── Create user ───────────────────────────────────────────────────────────────
