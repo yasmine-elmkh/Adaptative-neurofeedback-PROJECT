@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from '../context/ThemeContext'
 import { useAuthStore } from '../stores'
-import { Brain, Mail, Lock, UserPlus, User, Sun, Moon, Monitor, Globe, ChevronDown } from 'lucide-react'
+import { Mail, Lock, UserPlus, User, Sun, Moon, Monitor, Globe, ChevronDown } from 'lucide-react'
 
 const THEMES = [
   { key: 'auto',  Icon: Monitor },
@@ -102,10 +102,7 @@ export default function Register() {
 
             {/* Logo */}
             <div className="flex flex-col items-center gap-3">
-              <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
-                   style={{ background: 'linear-gradient(135deg, rgb(var(--nc-accent)), rgb(var(--nc-accent)/0.5))' }}>
-                <Brain className="w-7 h-7 text-white" />
-              </div>
+              <img src="/NeuroCap_Logo.png" alt="NeuroCap" className="w-14 h-14 object-contain" />
               <div className="text-center">
                 <h1 className="text-2xl font-bold text-nc-text">{t('auth.register.title')}</h1>
                 <p className="text-sm text-nc-muted mt-1">{t('auth.register.subtitle')}</p>
