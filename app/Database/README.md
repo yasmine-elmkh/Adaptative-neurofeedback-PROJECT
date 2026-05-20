@@ -1,158 +1,147 @@
-# NeuroCap Database — Supabase (PostgreSQL)
+# NeuroCap Database — Supabase v3.0
 
-All data is stored in **Supabase** (hosted PostgreSQL). The backend communicates via the `supabase-py` async client; no direct SQL queries are issued from application code.
+Toutes les données sont stockées dans **Supabase** (PostgreSQL hébergé). Le backend communique via le client async `supabase-py` ; aucune requête SQL directe n'est émise depuis le code applicatif.
 
 ---
 
-## Schema overview
+## Déploiement
+
+**Un seul fichier à exécuter** dans l'éditeur SQL Supabase :
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  users                                                       │
-│  id · email · username · first_name · last_name             │
-│  role · is_active · hashed_password                         │
-│  therapist_id (FK → users.id) · deleted_at · created_at     │
-└────────────────────┬────────────────────────────────────────┘
-                     │ 1:N
-          ┌──────────┴──────────┐
-          ▼                     ▼
-   ┌─────────────┐      ┌──────────────────┐
-   │  sessions   │      │  eeg_profiles    │
-   │  id         │      │  id              │
-   │  user_id    │      │  user_id         │
-   │  objective  │      │  profile_type    │
-   │  status     │      │  iapf            │
-   │  score      │      │  baseline_tbr    │
-   │  ...        │      │  palier          │
-   └──────┬──────┘      │  reactivity_score│
-          │ 1:N         └──────────────────┘
-          ▼
-   ┌─────────────────┐
-   │  session_events │
-   │  id             │
-   │  session_id     │
-   │  concentration  │
-   │  stress_rate    │
-   │  tbr · ei       │
-   │  block_number   │
-   └─────────────────┘
+app/Database/schema_v3.sql
+```
 
-┌────────────────────────────┐   ┌────────────────────────────────────┐
-│  therapist_notes           │   │  therapist_recommendations         │
-│  id · patient_id           │   │  id · patient_id · therapist_id    │
-│  therapist_id · content    │   │  recommended_objective             │
-│  created_at                │   │  weekly_sessions_target · message  │
-└────────────────────────────┘   └────────────────────────────────────┘
+> Idempotent — safe à relancer plusieurs fois (`IF NOT EXISTS` + `ADD COLUMN IF NOT EXISTS`).  
+> Ce fichier remplace et consolide tous les anciens fichiers de migration.
+
+---
+
+## Schéma v3.0
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  users                                                                   │
+│  id · email · username · first_name · last_name                         │
+│  role (patient|therapist|admin) · is_active                             │
+│  therapist_id (FK → users) · deleted_at · created_at                   │
+└────────────────────┬────────────────────────────────────────────────────┘
+                     │ 1:N
+      ┌──────────────┼──────────────┐
+      ▼              ▼              ▼
+┌───────────┐  ┌──────────────┐  ┌─────────────┐
+│ sessions  │  │ eeg_profiles │  │ eeg_reports │
+│ id        │  │ id           │  │ id          │
+│ user_id   │  │ user_id      │  │ patient_id  │
+│ objective │  │ profile_type │  │ source      │ ← 'file' | 'live'
+│ status    │  │ iapf         │  │ filename    │
+│ score     │  │ baseline_tbr │  │ n_epochs    │
+│ ...       │  │ palier       │  │ dominant_   │
+└─────┬─────┘  │ finetuned_   │  │   state     │
+      │ 1:N    │   version    │  │ epochs_json │
+      ▼        │ last_finetune│  └──────┬──────┘
+┌──────────────│   _at        │         │ 1:N
+│session_events│ last_20_sess │         ▼
+│ id           │   _accuracy  │  ┌─────────────────┐
+│ session_id   └──────────────┘  │ training_epochs │
+│ concentration                  │ id              │
+│ stress_rate                    │ patient_id      │
+│ tbr · ei                       │ predicted_label │
+│ block_number                   │ confidence      │
+└──────────────┘                 │ features (JSONB)│ ← 63 features FeatEng
+                                 │ is_high_conf    │
+                                 │ used_in_finetune│
+                                 └─────────────────┘
+
+┌─────────────────────────────────┐
+│ finetuning_jobs                 │
+│ id · patient_id                 │
+│ trigger_type (v1|v2|drift|maint)│
+│ status (pending|running|done)   │
+│ n_epochs_used                   │
+│ accuracy_before · accuracy_after│
+│ model_version · checkpoint_path │
+│ started_at · finished_at        │
+└─────────────────────────────────┘
+
+┌────────────────────────────┐   ┌───────────────────────────────────┐
+│ therapist_notes            │   │ therapist_recommendations         │
+│ id · patient_id            │   │ id · patient_id · therapist_id    │
+│ therapist_id · content     │   │ recommended_objective             │
+│ created_at                 │   │ weekly_target · notes             │
+└────────────────────────────┘   └───────────────────────────────────┘
 
 ┌──────────────────────────────────┐   ┌───────────────────────────────┐
-│  audit_logs                      │   │  system_settings              │
-│  id · user_id · action           │   │  key · value · description    │
-│  details · ip_address            │   │  updated_at                   │
-│  created_at                      │   └───────────────────────────────┘
-└──────────────────────────────────┘
+│ audit_logs                       │   │ system_settings               │
+│ id · user_id · action            │   │ key · value · description     │
+│ details · ip_address · created_at│   │ updated_at                    │
+└──────────────────────────────────┘   └───────────────────────────────┘
 ```
 
 ---
 
-## Migration files
+## Tables
 
-| File | Purpose |
+### `users`
+Comptes utilisateurs avec rôle (`patient` / `therapist` / `admin`), soft-delete (`deleted_at`), et lien thérapeute assigné (`therapist_id`).
+
+### `eeg_profiles`
+Profil cognitif de chaque patient : type A/B/C, IAPF, TBR baseline, palier P1–P4.  
+Colonnes fine-tuning v3.0 : `finetuned_version`, `finetuned_model_checkpoint`, `last_finetune_at`, `last_20_sessions_accuracy`.
+
+### `sessions` / `session_events`
+Sessions de neurofeedback et leurs événements EEG par bloc (concentration, stress, TBR, qualité signal).
+
+### `eeg_reports`
+Rapports d'analyse EEG stockés après chaque analyse fichier (`/api/eeg/analyze_file`) ou session live. Contient le résumé statistique + tableau JSON des époques.
+
+### `training_epochs`
+Epochs haute-confiance (≥ 0.85) extraites lors des analyses fichiers. Stockées en JSONB (63 features FeatEng). Utilisées comme données d'entraînement pour le fine-tuning LightGBM.
+
+### `finetuning_jobs`
+Historique de chaque run de fine-tuning automatique. Trace le type de déclenchement, le nombre d'epochs utilisées, l'accuracy avant/après, et le chemin du checkpoint sauvegardé.
+
+### `therapist_notes` / `therapist_recommendations`
+Notes cliniques et objectifs hebdomadaires définis par le thérapeute pour ses patients.
+
+### `audit_logs`
+Journal de toutes les mutations admin (création/modification/suppression d'utilisateurs, changements de settings).
+
+### `system_settings`
+Paramètres configurables via l'interface admin : durée blocs, nombre blocs, seuil TBR fatigue, export anonymisé, etc.
+
+---
+
+## Fichiers du dossier
+
+| Fichier | Usage |
 |---|---|
-| `NeuroCap_DB.sql` | Full initial schema creation |
-| `migration_roles.sql` | Add `role`, `is_active`, `first_name`, `last_name` columns |
-| `migration_roles_v2.sql` | Add `therapist_id`, `deleted_at` columns |
-| `supabase_migration.sql` | Consolidated migration for fresh Supabase deployments |
-| `historique.sql` | Session history views |
-| `inserer_donnees.py` | Seed script for demo/test data |
+| `schema_v3.sql` | **Schéma complet v3.0 — fichier unique à exécuter** |
+| `NeuroCap_DB.sql` | Schéma initial v1 (obsolète — conservé pour référence historique) |
+| `supabase_migration.sql` | Migration v1 → v2 (obsolète — intégré dans schema_v3.sql) |
+| `migration_roles.sql` | Ajout rôles v1 (obsolète — intégré dans schema_v3.sql) |
+| `migration_roles_v2.sql` | Ajout rôles v2 (obsolète — intégré dans schema_v3.sql) |
+| `historique.sql` | Exemples de requêtes analytiques SQL |
+| `inserer_donnees.py` | Script de seed pour données de démo/test |
 
 ---
 
-## Running migrations
+## Rôles
 
-In the **Supabase SQL editor** (or `psql`):
-
-```sql
--- Step 1: core schema
-\i NeuroCap_DB.sql
-
--- Step 2: role system
-\i migration_roles_v2.sql
-
--- Step 3: full consolidated (alternative to steps 1+2)
-\i supabase_migration.sql
-```
-
-Or run the full consolidated migration:
-
-```sql
--- Add missing columns safely
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ DEFAULT NULL;
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS therapist_id UUID REFERENCES public.users(id) ON DELETE SET NULL;
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS first_name TEXT DEFAULT '';
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_name TEXT DEFAULT '';
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'patient';
-
--- Clinical notes
-CREATE TABLE IF NOT EXISTS public.therapist_notes (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  patient_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
-  therapist_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
-  content TEXT NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Therapist recommendations
-CREATE TABLE IF NOT EXISTS public.therapist_recommendations (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  patient_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
-  therapist_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
-  recommended_objective TEXT,
-  weekly_sessions_target INTEGER,
-  message TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Audit logs
-CREATE TABLE IF NOT EXISTS public.audit_logs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
-  action TEXT NOT NULL,
-  details TEXT DEFAULT '',
-  ip_address TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- System settings
-CREATE TABLE IF NOT EXISTS public.system_settings (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL DEFAULT '',
-  description TEXT,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
----
-
-## Roles
-
-| Value | Description |
+| Valeur | Description |
 |---|---|
-| `patient` | End user performing neurofeedback sessions |
-| `therapist` | Clinician monitoring assigned patients |
-| `admin` | System administrator |
-
-> Legacy role value `user` is treated as `patient` in the backend for backwards compatibility.
+| `patient` | Utilisateur effectuant des sessions neurofeedback |
+| `therapist` | Clinicien supervisant ses patients assignés |
+| `admin` | Administrateur système |
 
 ---
 
 ## Soft delete
 
-Users are soft-deleted by setting `deleted_at = NOW()`. Hard delete is possible via `DELETE /api/admin/users/{id}?hard=true`. The backend filters out soft-deleted users from all list queries.
+Les utilisateurs sont soft-deletés via `deleted_at = NOW()`. La suppression hard est possible via `DELETE /api/admin/users/{id}?hard=true`. Le backend filtre automatiquement les soft-deleted de toutes les requêtes de liste.
 
 ---
 
 ## Row-Level Security (RLS)
 
-Supabase RLS is intentionally **disabled** on most tables because the backend uses the **service-role key** server-side, which bypasses RLS. All access control is enforced at the FastAPI dependency layer (`get_current_user`, `get_therapist_user`, `get_admin_user`).
+RLS est **désactivé** sur toutes les tables car le backend utilise la **service-role key** côté serveur, qui bypasse RLS. Tout le contrôle d'accès est appliqué au niveau FastAPI (`get_current_user`, `get_therapist_user`, `get_admin_user`).

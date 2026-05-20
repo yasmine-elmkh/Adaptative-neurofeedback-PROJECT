@@ -1,89 +1,87 @@
 # NeuroCap Frontend — React 18 + Vite + Tailwind
 
-Single-page application for the NeuroCap neurofeedback platform, built with React 18, Vite 5, and Tailwind CSS 3.
+Application SPA pour la plateforme de neurofeedback EEG NeuroCap.  
+Oscilloscope temps réel, analyse fichiers EEG offline, dashboard patient, gestion thérapeute, administration.
 
 ---
 
 ## Stack
 
-| Technology | Version | Role |
+| Technologie | Version | Rôle |
 |---|---|---|
-| React | 18 | UI framework |
-| Vite | 5 | Build tool + dev server |
-| Tailwind CSS | 3 | Utility-first styling |
-| React Router | 6 | Client-side routing |
-| Zustand | 4 | Global state (auth) |
-| Axios | 1 | HTTP client |
-| Recharts | 2 | Charts (BarChart, LineChart, PieChart, RadialBar) |
+| React | 18 | Framework UI |
+| Vite | 5 | Build tool + serveur dev |
+| Tailwind CSS | 3 | Styling utility-first |
+| React Router | 6 | Routing côté client |
+| Zustand | 4 | État global (auth) |
+| Axios | 1 | Client HTTP |
+| Recharts | 2 | Graphiques (AreaChart, BarChart, PieChart, RadialBar) |
 | i18next | latest | Internationalisation (FR / EN / AR + RTL) |
-| Lucide React | latest | Icon system |
+| Lucide React | latest | Icônes |
 
 ---
 
-## Project structure
+## Structure du projet
 
 ```
 app/Frontend/
 ├── public/
-│   └── video/               # Background media assets
+│   ├── NeuroCap_Logo.png        # Logo officiel (utilisé sur Login + Register)
+│   ├── favicon.svg
+│   └── video/
+│       └── Brain.mp4            # Vidéo fond droite Login
 ├── src/
-│   ├── assets/              # Static images, logos
 │   ├── components/
-│   │   ├── Layout.jsx       # Sticky navbar, mobile drawer, footer, bottom nav
-│   │   ├── UserFormModal.jsx# Create / edit user modal (admin)
-│   │   ├── Brain3D.jsx      # 3D brain visualisation
-│   │   ├── EEGGauge.jsx     # Real-time EEG gauge
-│   │   ├── EEGVisualization.jsx
-│   │   ├── FeedbackRenderer.jsx
-│   │   ├── GaugeChart.jsx
-│   │   ├── RecommendationEngine.jsx
-│   │   ├── SignalQuality.jsx
-│   │   └── TopoMap2D.jsx
+│   │   ├── Layout.jsx           # Navbar sticky + drawer mobile + bottom nav
+│   │   ├── eeg/
+│   │   │   ├── SignalCanvas.jsx  # Oscilloscope canvas WebGL
+│   │   │   └── BandBars.jsx      # Barres puissance bandes spectrales
+│   │   └── ...
 │   ├── context/
-│   │   └── ThemeContext.jsx  # Dark / light / auto theme
-│   ├── hooks/               # Custom React hooks
-│   ├── i18n/                # Translation files (fr.json, en.json, ar.json)
+│   │   └── ThemeContext.jsx     # Dark / light / auto + tokens CSS
+│   ├── hooks/
+│   │   └── useEEGWebSocket.js   # Hook WebSocket EEG (reconnexion auto, état)
+│   ├── i18n/                    # Fichiers traductions (fr.json, en.json, ar.json)
 │   ├── pages/
-│   │   ├── Landing.jsx               # Public landing page
-│   │   ├── Login.jsx                 # Auth pages
-│   │   ├── Register.jsx
-│   │   ├── DashboardPage.jsx         # Patient dashboard
-│   │   ├── AdminDashboard.jsx        # Admin KPIs + charts + user table
-│   │   ├── AdminPanel.jsx            # Admin: assignments, settings, audit
-│   │   ├── TherapistDashboard.jsx    # Therapist overview (KPIs + table + alerts)
-│   │   ├── TherapistPatientDetail.jsx# Patient detail: sessions, EEG, actions, notes
-│   │   ├── SessionLive.jsx           # Live EEG session
-│   │   ├── SessionPage.jsx
-│   │   ├── History.jsx               # Session history
-│   │   ├── Assistant.jsx             # RAG chatbot
-│   │   └── Profile.jsx               # Role-aware profile (patient/therapist/admin)
+│   │   ├── Landing.jsx               # Page publique
+│   │   ├── Login.jsx                 # Connexion (logo NeuroCap_Logo.png)
+│   │   ├── Register.jsx              # Inscription (logo NeuroCap_Logo.png)
+│   │   ├── DashboardPage.jsx         # Dashboard patient : EEG recordings + sessions
+│   │   ├── EEGSelector.jsx           # Choix mode EEG (live / fichier / guide)
+│   │   ├── EEGLive.jsx               # Oscilloscope temps réel + WiFi + baseline
+│   │   ├── EEGFile.jsx               # Upload + analyse LightGBM + auto-save rapport
+│   │   ├── ElectrodeGuide.jsx        # Guide 10-20 + protocole cutané + consentement RGPD
+│   │   ├── Profile.jsx               # Profils A/B/C + fine-tuning IA (role-aware)
+│   │   ├── TherapistDashboard.jsx    # Vue thérapeute : KPIs + patients + alertes
+│   │   ├── TherapistPatientDetail.jsx# Détail patient : sessions, EEG, notes, actions
+│   │   ├── AdminDashboard.jsx        # Admin : KPIs + graphiques + gestion utilisateurs
+│   │   └── AdminPanel.jsx            # Admin : assignments, settings, audit logs
 │   ├── stores/
-│   │   └── authStore.js     # Zustand auth store (token, user, login, logout)
-│   ├── styles/              # Global CSS + Tailwind base
+│   │   └── authStore.js             # Zustand : token, user, login, logout
 │   └── utils/
-│       └── api.js           # Axios instance + all API helpers
+│       └── api.js                   # Instance Axios + tous les helpers API (eeg.*, auth.*, ...)
 ├── index.html
-├── vite.config.js           # Vite config + /api proxy → localhost:8001
+├── vite.config.js                   # Proxy /api → 8001, /ws → 8001
 ├── tailwind.config.js
 └── package.json
 ```
 
 ---
 
-## Setup
+## Installation
 
 ```bash
 npm install
 npm run dev       # http://localhost:5173
-npm run build     # production build → dist/
-npm run preview   # preview production build
+npm run build     # build production → dist/
+npm run preview   # prévisualiser le build
 ```
 
 ---
 
-## Dev proxy
+## Proxy Vite
 
-All `/api/*` and `/ws/*` requests are proxied to the backend:
+Toutes les requêtes `/api/*` et `/ws/*` sont proxifiées vers le backend :
 
 ```js
 // vite.config.js
@@ -95,63 +93,91 @@ proxy: {
 
 ---
 
-## Routing & role guards
+## Routing et guards de rôle
 
 ```
-/                   → Landing (public)
-/login              → Login (public, redirects if authenticated)
-/register           → Register (public)
+/                       → Landing (public)
+/login                  → Login (public, redirige si authentifié)
+/register               → Register (public)
 
-/dashboard          → DashboardRoute (admin → AdminDashboard, therapist → TherapistDashboard, patient → Dashboard)
-/session/new        → SessionLive   (patient only)
-/session/:id        → SessionLive
-/history            → History       (patient only)
-/assistant          → Assistant     (patient only)
-/profile            → Profile       (all roles — role-aware content)
-/therapist          → TherapistDashboard   (therapist + admin)
-/therapist/patient/:id → TherapistPatientDetail
-/admin              → AdminPanel    (admin only)
+/dashboard              → DashboardPage (patient)
+                          AdminDashboard (admin)
+                          TherapistDashboard (thérapeute)
+
+/eeg                    → EEGSelector    (patient — choix live / fichier / guide)
+/eeg-live               → EEGLive        (patient — oscilloscope temps réel)
+/eeg-file               → EEGFile        (patient — upload + analyse offline)
+/electrode-guide        → ElectrodeGuide (patient — guide + consentement RGPD)
+
+/profile                → Profile        (tous rôles — contenu adapté au rôle)
+/therapist              → TherapistDashboard
+/therapist/patient/:id  → TherapistPatientDetail
+/admin                  → AdminPanel
 ```
 
 ---
 
-## Navigation per role
+## Navigation par rôle
 
-| Link | Patient | Therapist | Admin |
+| Lien | Patient | Thérapeute | Admin |
 |---|---|---|---|
 | Tableau de bord | ✅ | ✅ | ✅ |
-| Session live | ✅ | ❌ | ❌ |
-| Historique | ✅ | ❌ | ❌ |
-| Assistant | ✅ | ❌ | ❌ |
+| EEG (live / fichier) | ✅ | ❌ | ❌ |
+| Guide électrode | ✅ | ❌ | ❌ |
 | Mes patients | ❌ | ✅ | ❌ |
 | Administration | ❌ | ❌ | ✅ |
 | Mon profil | ✅ | ✅ | ✅ |
 
 ---
 
-## Theming
+## Pages clés
 
-Three modes: `auto` (system), `light`, `dark`. Managed via `ThemeContext`, toggled in the top navbar. Design tokens use CSS custom properties (`--nc-bg`, `--nc-accent`, `--nc-surface`, …) defined in `src/styles/`.
+### `EEGLive.jsx`
+Oscilloscope temps réel via `useEEGWebSocket`. Gestion WiFi ESP32 (scan, config SSID, reconnexion). Acquisition baseline + enregistrement CSV. Affichage état électrode + bandes spectrales en temps réel.
+
+### `EEGFile.jsx`
+Upload fichier `.edf` / `.csv` / `.txt`. Appel `POST /api/eeg/analyze_file` → résultats LightGBM (état dominant, distribution epochs, confiance). Auto-sauvegarde du rapport pour le thérapeute si authentifié. Stockage automatique des epochs haute-confiance dans `training_epochs` pour le fine-tuning.
+
+### `EEGSelector.jsx`
+Carte de choix entre les 3 modes : EEG temps réel, Analyser un fichier, Guide électrode. Point d'entrée `/eeg`.
+
+### `ElectrodeGuide.jsx`
+Schéma du système 10-20, protocole cutané détaillé, FAQ signal, consentement RGPD à accepter avant toute session.
+
+### `DashboardPage.jsx`
+Dashboard patient : cartes statistiques (rapports EEG, sessions, profil), AreaChart évolution temporelle, tableau des derniers rapports EEG. Empty state avec CTA vers EEGSelector si aucune donnée.
+
+### `Profile.jsx`
+Role-aware :
+- **Patient** : type cognitif A/B/C (ratio α/β + ERD), métriques EEG, palier P1–P4, statut fine-tuning IA avec indicateur activité (actif / en attente / inactif longue durée).
+- **Thérapeute / Admin** : vue info + changement mot de passe.
+
+### `TherapistPatientDetail.jsx`
+4 onglets : **Vue d'ensemble** (profil EEG + graphique scores), **Sessions** (tableau complet), **Rapports EEG** (analyses fichiers + sessions live), **Actions** (objectif, palier, activation), **Notes cliniques**.
+
+### `AdminDashboard.jsx`
+KPIs globaux, graphiques Recharts (donut rôles, bar sessions, radial engagement), table utilisateurs avec recherche, filtre rôle, toggle actif, suppression.
+
+---
+
+## Thème
+
+3 modes : `auto` (système), `light`, `dark`. Géré via `ThemeContext`, basculable depuis la navbar. Design tokens CSS (`--nc-bg`, `--nc-accent`, `--nc-surface`, …) définis dans `src/styles/`.
 
 ---
 
 ## Internationalisation
 
-Supported languages: **Français** (default), **English**, **العربية** (RTL).
-Translation keys are in `src/i18n/{fr,en,ar}.json`. Language is persisted to `localStorage`.
+Langues : **Français** (défaut), **English**, **العربية** (RTL).  
+Fichiers de traduction dans `src/i18n/{fr,en,ar}.json`. Langue persistée dans `localStorage`.
 
 ---
 
-## Key pages
+## Hook WebSocket EEG — `useEEGWebSocket.js`
 
-### `TherapistDashboard.jsx`
-Full therapist overview: 5 KPI cards with SVG ring progress, bar chart (patient scores), pie chart (palier distribution), interactive patient table with search + filters, sticky alerts sidebar.
-
-### `TherapistPatientDetail.jsx`
-4-tab patient detail: **Vue d'ensemble** (EEG profile + score chart), **Sessions** (full table with TBR/blocks), **Actions** (recommend objective, prescribe sessions, adjust palier, toggle active), **Notes cliniques**.
-
-### `Profile.jsx`
-Role-aware: patients see full EEG profile + palier progress + calibration; therapists and admins see a clean info view. All roles have a collapsible password change section.
-
-### `AdminDashboard.jsx`
-Admin overview with Recharts charts (donut role distribution, bar sessions, radial engagement), 6 KPI cards, and a full user management table with role editing, active toggle, and delete.
+Gère la connexion WebSocket `/ws/eeg`, la reconnexion automatique, et expose :
+- `signal` : buffer d'échantillons pour l'oscilloscope
+- `epoch` : dernière epoch classifiée (state, confidence, features)
+- `electrode` : qualité contact
+- `esp32` : état connexion + IP
+- `send(cmd)` : envoi de commandes (FINALISE_BASELINE, START_REC, …)

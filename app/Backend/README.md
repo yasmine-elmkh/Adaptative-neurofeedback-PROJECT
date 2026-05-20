@@ -1,87 +1,108 @@
-# NeuroCap Backend — FastAPI + Supabase
+# NeuroCap Backend — FastAPI v3.0
 
-Async REST API + WebSocket server for the NeuroCap adaptive neurofeedback platform.
+API asynchrone REST + WebSocket pour la plateforme de neurofeedback EEG NeuroCap.  
+Pipeline EEG temps réel (ESP32 → DSP → LightGBM) + fine-tuning automatique nocturne.
 
 ---
 
 ## Stack
 
-| Component | Technology |
+| Composant | Technologie |
 |---|---|
 | Framework | FastAPI 0.115+ (async) |
-| Database | Supabase (PostgreSQL via `supabase-py` AsyncClient) |
-| Auth | JWT (python-jose) + bcrypt password hashing |
-| Real-time | WebSocket (`/ws/session/{id}`) |
-| Signal DSP | NumPy, SciPy |
-| ML inference | PyTorch (CNN-LSTM classifier) |
-| RAG assistant | Ollama (local LLM) + SQLite vector store |
+| Base de données | Supabase (PostgreSQL via `supabase-py` AsyncClient) |
+| Auth | JWT (python-jose) + bcrypt |
+| Temps réel | WebSocket `/ws/eeg` (signal + epochs + électrode) |
+| DSP | NumPy, SciPy, MNE, PyWavelets |
+| ML primaire | LightGBM (LOSO, 63 features FeatEng) |
+| Fine-tuning | LightGBM incremental (`init_model`) + APScheduler |
+| Scheduler | APScheduler AsyncIOScheduler (02:00 UTC) |
 | Config | python-dotenv + pydantic-settings |
+| Media | Cloudinary |
 
 ---
 
-## Project structure
+## Structure du projet
 
 ```
 app/Backend/
 ├── app/
-│   ├── main.py              # FastAPI app entry point + WebSocket EEG handler
-│   ├── config.py            # Settings (env vars via pydantic-settings)
-│   ├── database.py          # Supabase AsyncClient factory
+│   ├── main.py                        # Lifespan : EEG pipeline + FT scheduler + WS /ws/eeg
+│   ├── config.py                      # Settings (pydantic-settings)
 │   ├── core/
-│   │   ├── config.py        # Centralised settings
-│   │   ├── database.py      # get_db dependency
-│   │   └── security.py      # JWT helpers, bcrypt, FastAPI deps
+│   │   ├── database.py                # Supabase AsyncClient singleton (get_db)
+│   │   └── security.py                # JWT, bcrypt, get_current_user
 │   ├── middleware/
-│   │   └── security.py      # CORS, rate limiting, brute-force protection
-│   ├── models/              # SQLAlchemy ORM models (legacy, kept for reference)
+│   │   └── security.py                # CORS, rate limiting
 │   ├── routes/
-│   │   ├── auth.py          # POST /register, /login, /refresh, /me, /change-password
-│   │   ├── sessions.py      # CRUD sessions + EEG report + CSV export
-│   │   ├── Profile.py       # GET/POST /profile/me, /calibration
-│   │   ├── admin.py         # Admin: users, assignments, settings, audit logs
-│   │   ├── therapist.py     # Therapist: patients, notes, recommendations, palier
-│   │   └── assistant.py     # RAG chatbot endpoint
+│   │   ├── auth.py                    # /api/auth
+│   │   ├── sessions.py                # /api/sessions
+│   │   ├── Profile.py                 # /api/profile
+│   │   ├── admin.py                   # /api/admin
+│   │   ├── therapist.py               # /api/therapist
+│   │   ├── assistant.py               # /api/assistant
+│   │   └── eeg.py                     # /api/eeg/* (EEG + fine-tuning status)
 │   ├── schemas/
-│   │   └── __init__.py      # All Pydantic request/response models
+│   │   └── __init__.py                # Tous les modèles Pydantic
 │   └── services/
-│       ├── signal_processing.py   # Bandpass, Welch PSD, feature extraction
-│       ├── classifieur.py         # CNN-LSTM inference wrapper
-│       ├── adaptative_engine.py   # EWMA adaptive threshold + palier logic
-│       └── rag_service.py         # Ollama RAG assistant (local LLM)
+│       ├── eeg/
+│       │   ├── eeg_pipeline.py        # Singleton orchestrateur (TCPReceiver + DSP + WS)
+│       │   ├── tcp_receiver.py        # Réception CSV depuis ESP32 (port 9000)
+│       │   ├── wifi_manager.py        # Gestion WiFi UDP (port 4320)
+│       │   ├── dsp/
+│       │   │   ├── filters.py         # Golden Filter IIR 1–45 Hz
+│       │   │   ├── epochs.py          # EpochExtractor 4 s × 250 Hz + z-score
+│       │   │   ├── features.py        # Extraction 63 features spectrales/temporelles/ondelettes
+│       │   │   ├── artifacts.py       # Détection artefacts EOG/EMG
+│       │   │   ├── ml_classifier.py   # LightGBM LOSO 63 features
+│       │   │   └── file_processor.py  # Analyse offline .edf/.csv/.txt
+│       │   └── recording/
+│       │       └── csv_handler.py
+│       ├── finetune/
+│       │   ├── __init__.py
+│       │   ├── conditions.py          # Vérification activité + seuils déclenchement
+│       │   ├── runner.py              # LightGBM incremental + sauvegarde checkpoint
+│       │   └── scheduler.py          # APScheduler nocturne 02:00 UTC (lazy import)
+│       ├── adaptative_engine.py
+│       ├── classifieur.py
+│       └── rag_service.py
+├── models/
+│   └── personal/                      # Checkpoints personnels : patient_{id8}_v{n}.joblib
 ├── requirements.txt
 └── .env.example
 ```
 
 ---
 
-## Setup
+## Installation
 
 ```bash
-# 1. Create and activate virtual environment
 python -m venv venv
 venv\Scripts\activate          # Windows
 source venv/bin/activate       # Linux / macOS
 
-# 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Configure environment
-cp .env.example .env
-# Edit .env — see variables below
+# Pour activer le fine-tuning automatique (optionnel au démarrage)
+pip install APScheduler lightgbm joblib
 
-# 4. Start server
-uvicorn app.main:app --reload --port 8001
+cp .env.example .env
+# Remplir les variables Supabase + JWT
+
+uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
 ```
+
+> Le backend démarre **même sans APScheduler** : un warning est loggé et le scheduler est désactivé. Le reste (EEG, API, WS) fonctionne normalement.
 
 ---
 
-## Environment variables
+## Variables d'environnement
 
 ```env
 # Supabase
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key   # server-side only, never expose
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
 # JWT
 SECRET_KEY=change-this-in-production
@@ -89,7 +110,7 @@ ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 REFRESH_TOKEN_EXPIRE_DAYS=30
 
-# Cloudinary (avatar / media)
+# Cloudinary
 CLOUDINARY_CLOUD_NAME=your-cloud
 CLOUDINARY_API_KEY=your-key
 CLOUDINARY_API_SECRET=your-secret
@@ -97,100 +118,158 @@ CLOUDINARY_API_SECRET=your-secret
 
 ---
 
-## API reference (main routes)
+## Routes API
 
-### Authentication — `/api/auth`
-| Method | Path | Description |
+### Auth — `/api/auth`
+| Méthode | Route | Description |
 |---|---|---|
-| POST | `/register` | Register new user, returns tokens |
-| POST | `/login` | Login, returns access + refresh token |
-| POST | `/refresh` | Renew access token via refresh token |
-| GET | `/me` | Current user profile |
-| POST | `/change-password` | Change own password (requires current password) |
+| POST | `/register` | Inscription + tokens JWT |
+| POST | `/login` | Connexion → access + refresh token |
+| POST | `/refresh` | Renouvellement token |
+| GET | `/me` | Profil courant |
+| POST | `/change-password` | Changement mot de passe |
 
 ### Sessions — `/api/sessions`
-| Method | Path | Description |
+| Méthode | Route | Description |
 |---|---|---|
-| GET | `/sessions` | List user sessions |
-| POST | `/sessions` | Create new session |
-| GET | `/sessions/{id}/report` | Full session report |
-| GET | `/sessions/{id}/export` | Export CSV |
-| GET | `/sessions/export/all` | Export all sessions CSV |
+| GET | `/` | Liste sessions patient |
+| POST | `/` | Créer une session |
+| GET | `/{id}/report` | Rapport complet session |
+| GET | `/{id}/export` | Export CSV session |
+| GET | `/export/all` | Export CSV toutes sessions |
 
-### Therapist — `/api/therapist`
-| Method | Path | Description |
+### EEG — `/api/eeg`
+| Méthode | Route | Description |
 |---|---|---|
-| GET | `/patients` | List assigned patients (enriched) |
-| GET | `/patients/{id}` | Patient detail + stats |
-| GET | `/patients/{id}/sessions` | Patient session history |
-| GET | `/patients/{id}/profile` | EEG profile (read-only) |
-| GET/POST | `/patients/{id}/notes` | Private clinical notes |
-| GET/POST | `/patients/{id}/recommendation` | Objective & weekly target |
-| PUT | `/patients/{id}/palier` | Adjust difficulty level (P1–P4) |
-| PATCH | `/patients/{id}/active` | Toggle account active status |
-| GET | `/patients/{id}/export` | Export patient CSV |
+| GET | `/status` | État ESP32, baseline, qualité |
+| GET | `/analyze` | Rapport DSP détaillé |
+| POST | `/baseline/finalise` | Calcul Z-scores individuels |
+| POST | `/recording/start` | Démarrer enregistrement CSV |
+| POST | `/recording/stop` | Arrêter enregistrement |
+| GET | `/recording/export` | Télécharger CSV signal |
+| GET | `/wifi/networks` | Réseaux mémorisés ESP32 |
+| POST | `/wifi/configure` | Configurer WiFi SSID + pwd |
+| POST | `/wifi/use_saved` | Reconnecter réseau mémorisé |
+| POST | `/wifi/reset` | Effacer configuration WiFi |
+| POST | `/analyze_file` | Analyse fichier .edf/.csv/.txt (auth optionnelle → stockage epochs) |
+| POST | `/report` | Sauvegarder rapport EEG (live/fichier) |
+| GET | `/my-reports` | Rapports EEG du patient authentifié |
+| GET | `/finetuning/status` | Statut fine-tuning IA (activité, epochs, job en cours) |
+| WS | `/ws/eeg` | Stream EEG temps réel |
+
+### Thérapeute — `/api/therapist`
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/patients` | Liste patients assignés |
+| GET | `/patients/{id}` | Détail patient |
+| GET | `/patients/{id}/sessions` | Historique sessions |
+| GET | `/patients/{id}/profile` | Profil EEG (lecture seule) |
+| GET/POST | `/patients/{id}/notes` | Notes cliniques |
+| GET/POST | `/patients/{id}/recommendation` | Objectif + cible hebdomadaire |
+| PUT | `/patients/{id}/palier` | Ajustement difficulté P1–P4 |
+| PATCH | `/patients/{id}/active` | Activer/désactiver compte |
+| GET | `/patients/{id}/export` | Export CSV patient |
+| GET | `/patients/{id}/eeg-reports` | Rapports EEG du patient |
 
 ### Admin — `/api/admin`
-| Method | Path | Description |
+| Méthode | Route | Description |
 |---|---|---|
-| GET | `/stats` | Global KPIs |
-| GET/POST | `/users` | List + create users |
-| GET/PUT/DELETE | `/users/{id}` | Get, update, soft/hard delete |
-| POST | `/assign-patient` | Assign patient to therapist |
-| GET/PUT | `/settings/{key}` | System settings |
-| GET | `/audit-logs` | Filtered audit trail |
-
-### WebSocket — `ws://host/ws/session/{id}?token=<jwt>`
-
-Real-time EEG stream. Client sends `{"samples": [float × 1000]}` every 4 s;  
-server returns `WSFrame` JSON with concentration, stress, feedback, threshold, block info.
+| GET | `/stats` | KPIs globaux |
+| GET/POST | `/users` | Lister + créer utilisateurs |
+| GET/PUT/DELETE | `/users/{id}` | Détail, modification, suppression |
+| POST | `/assign-patient` | Assigner patient → thérapeute |
+| GET/PUT | `/settings/{key}` | Paramètres système |
+| GET | `/audit-logs` | Journal d'audit filtré |
 
 ---
 
-## Security
+## WebSocket EEG — `ws://host/ws/eeg?token=<jwt>`
 
-| Layer | Measure |
+Types de messages diffusés :
+
+| Type | Fréquence | Contenu |
+|---|---|---|
+| `init` | Connexion | État ESP32, baseline, qualité électrode |
+| `eeg` | ~62 Hz | Échantillons signal brut |
+| `epoch` | Toutes 4 s | 63 features + état LightGBM + confiance |
+| `electrode` | Heartbeat | Qualité contact électrode |
+| `esp32_status` | Événement | Changement connexion ESP32 |
+
+Commandes client :
+
+| Commande | Action |
 |---|---|
-| **Secrets** | All credentials in `.env` — never committed. `.env.example` has placeholders only |
-| **Passwords** | Hashed with `bcrypt` (cost factor 12) before storage — plain text never persisted |
-| **JWT** | Access token: 60 min · Refresh token: 30 days · Signed with `SECRET_KEY` (HS256) |
-| **Service-role key** | `SUPABASE_SERVICE_ROLE_KEY` bypasses RLS — used only in server-side calls, never sent to frontend |
-| **CORS** | Strict origin whitelist in `middleware/security.py` — rejects unknown origins |
-| **Role guards** | `get_current_user` → `get_therapist_user` / `get_admin_user` FastAPI dependency chain on every protected route |
-| **Rate limiting** | Brute-force protection on `/auth/login` and `/auth/register` via middleware |
-| **Audit logs** | Admin-level mutations recorded in `audit_logs` table with user ID, action, and IP |
-| **Soft delete** | Users set to `is_active=false` — data preserved, account access revoked |
-| **Input validation** | All request bodies validated by Pydantic v2 with strict types and field constraints |
-
-> In production: set `SECRET_KEY` to `openssl rand -hex 32`, enable Supabase RLS policies, and run behind HTTPS.
+| `FINALISE_BASELINE` | Calcul Z-scores individuels |
+| `START_REC` / `STOP_REC` | Enregistrement CSV |
+| `ANALYZE_NOW` | Rapport DSP instantané |
 
 ---
 
-## Role access matrix
+## Fine-tuning automatique
 
-| Route group | Patient | Therapist | Admin |
+```
+02:00 UTC chaque nuit :
+  Pour chaque patient avec profil EEG :
+    1. Vérifier activité (≤ 14j inactif, ≥3 actions/30j, ≥100 epochs/30j)
+    2. Si inactif → skip (pas de fine-tuning)
+    3. Vérifier seuil :
+         v1          : 2 000 epochs ≥ 0.85 confiance, ≥ 25j depuis calibration
+         v2          : 4 000 nouvelles epochs, ≥ 60j depuis v1
+         drift       : accuracy 20 dernières sessions < 85%
+         maintenance : ≥ 180j depuis dernier fine-tuning
+    4. LightGBM incremental (init_model=base_clf, lr=0.01)
+    5. Sauvegarde → models/personal/patient_{id8}_v{n}.joblib
+    6. Mise à jour eeg_profiles + enregistrement finetuning_jobs
+```
+
+> APScheduler est un import **optionnel** : si le package n'est pas installé, le backend démarre normalement et log un warning.
+
+---
+
+## Sécurité
+
+| Couche | Mesure |
+|---|---|
+| Secrets | Variables `.env` — jamais commitées |
+| Mots de passe | bcrypt (factor 12) |
+| JWT | Access 60 min · Refresh 30 jours · HS256 |
+| Service-role key | Côté serveur uniquement, jamais exposée au frontend |
+| CORS | Whitelist stricte dans `middleware/security.py` |
+| Rôles | Dépendances FastAPI : `get_current_user` → `get_therapist_user` / `get_admin_user` |
+| Rate limiting | Brute-force protection sur `/auth/login` et `/auth/register` |
+| Audit | Mutations admin enregistrées dans `audit_logs` |
+| Soft delete | `deleted_at = NOW()` — données préservées, accès révoqué |
+
+---
+
+## Tables Supabase requises
+
+Exécuter **`app/Database/schema_v3.sql`** dans l'éditeur SQL Supabase.
+
+| Table | Rôle |
+|---|---|
+| `users` | Comptes (patient / therapist / admin) |
+| `eeg_profiles` | Profil cognitif A/B/C + colonnes fine-tuning |
+| `sessions` | Sessions neurofeedback |
+| `session_events` | Événements EEG par bloc |
+| `eeg_reports` | Rapports analyses fichiers + sessions live |
+| `training_epochs` | Epochs haute-confiance pour fine-tuning (JSONB 63 features) |
+| `finetuning_jobs` | Historique des runs de fine-tuning |
+| `therapist_notes` | Notes cliniques |
+| `therapist_recommendations` | Objectifs + cibles thérapeutes |
+| `audit_logs` | Journal d'audit admin |
+| `system_settings` | Paramètres système configurables |
+
+---
+
+## Matrice d'accès par rôle
+
+| Groupe de routes | Patient | Thérapeute | Admin |
 |---|---|---|---|
 | `/api/auth/*` | ✅ | ✅ | ✅ |
 | `/api/sessions/*` | ✅ | ❌ | ❌ |
 | `/api/profile/*` | ✅ | ❌ | ❌ |
+| `/api/eeg/*` | ✅ | ❌ | ❌ |
 | `/api/therapist/*` | ❌ | ✅ | ✅ |
 | `/api/admin/*` | ❌ | ❌ | ✅ |
-| `/ws/session/*` | ✅ | ❌ | ❌ |
-
----
-
-## Supabase tables required
-
-```sql
-users               -- id, email, username, first_name, last_name, role, is_active,
-                    --   hashed_password, therapist_id, deleted_at, created_at
-sessions            -- id, user_id, objective, feedback_mode, status, score, ...
-session_events      -- id, session_id, concentration_rate, stress_rate, tbr, ...
-eeg_profiles        -- id, user_id, profile_type, iapf, palier, reactivity_score, ...
-therapist_notes     -- id, therapist_id, patient_id, content, created_at
-therapist_recommendations -- id, therapist_id, patient_id, recommended_objective, ...
-audit_logs          -- id, user_id, action, details, ip_address, created_at
-system_settings     -- key, value, description, updated_at
-```
-
-> SQL migrations are in `app/Database/`.
+| `/ws/eeg` | ✅ (public) | ✅ | ✅ |
