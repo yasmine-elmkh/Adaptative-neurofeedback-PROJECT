@@ -349,7 +349,7 @@ class RealTimeProcessor:
 
             def bp(lo, hi):
                 mask = (fw >= lo) & (fw <= hi)
-                return float(np.trapezoid(pxx[mask], fw[mask])) if mask.any() else 0.0
+                return float(np.trapz(pxx[mask], fw[mask])) if mask.any() else 0.0
 
             abs_b   = {name: bp(lo, hi) for name, (lo, hi) in _BANDS_RT.items()}
             p_emg   = bp(*_EMG_BAND)

@@ -11,6 +11,11 @@ import logging
 
 logger = logging.getLogger("NeuroCap")
 
+try:
+    from utils.constants import AD8232_GAIN
+except ImportError:
+    AD8232_GAIN = 100.0  # fallback si constants non disponible
+
 TCP_PORT = 9000
 
 
@@ -177,7 +182,12 @@ class TCPReceiver:
                         line, buf = buf.split("\n", 1)
                         sample = parse_csv_line(line.strip(), lc)
                         if sample:
+                            # 1. Suppression DC adaptative (dérive électrode, offset MidRail résiduel)
                             sample["uv"] = self._dc_remover.remove(sample["uv"])
+                            # 2. Normalisation gain AD8232 : voltage ADC µV → µV EEG au scalp
+                            #    Sans cette division, les seuils DSP (EXTREME_PEAK 500 µV, etc.)
+                            #    sont 100× trop bas et rejettent 100% des époques.
+                            sample["uv"] /= AD8232_GAIN
                             # Mettre à jour électrodes
                             self.electrode_monitor.update(
                                 sample.get("lo_plus", 0),

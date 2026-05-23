@@ -132,11 +132,15 @@ def on_tcp_disconnected():
 
 
 def on_filter_reset():
+    # reset() réinitialise TOUS les états IIR (zi_notch, zi_n100, zi_bp)
+    # + le flag _dc_initialized + le CQE + le compteur de warmup.
+    # Appeler seulement _dc_initialized laissait les zi_* avec l'ancien DC,
+    # causant un artefact transitoire au démarrage de chaque reconnexion.
     try:
-        api_module.rt.epocher.pipeline.filters._dc_initialized = False
-        logger.info("[DSP] Filtres IIR reset")
-    except Exception:
-        pass
+        api_module.rt.reset()
+        logger.info("[DSP] RealTimeProcessor reset complet (IIR + CQE + warmup)")
+    except Exception as e:
+        logger.warning(f"[DSP] reset impossible: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════

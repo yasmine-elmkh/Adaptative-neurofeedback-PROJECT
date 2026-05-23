@@ -93,7 +93,7 @@ class PreprocessingPipeline:
             scaling="density",
         )
         mask = (f >= lo) & (f <= hi)
-        return float(np.trapezoid(psd[mask], f[mask])) if mask.any() else 0.0
+        return float(np.trapz(psd[mask], f[mask])) if mask.any() else 0.0
 
     def add_baseline_epoch(self, epoch_f: np.ndarray):
         """

@@ -6,6 +6,17 @@ Constantes NeuroCap EEG
 # Fréquence d'échantillonnage
 FS = 250  # Hz
 
+# Gain total de la chaîne d'amplification AD8232
+# L'ADS1115 mesure la tension amplifiée (en µV ADC). Diviser par ce gain
+# dans le pipeline DSP pour retrouver les µV EEG réels au scalp.
+#
+# Comment calculer : G = (1 + 470kΩ/R_G) pour l'INA interne × gain du filtre HP.
+# Valeurs communes NeuroCap :
+#   R_G = 470Ω  → G_INA ≈ 1000  (EEG typique)
+#   R_G = 4.7kΩ → G_INA ≈ 100
+# Calibration rapide : RMS cible = 5-50 µV au repos (yeux fermés, sans cligner).
+AD8232_GAIN = 1000.0
+
 # Bandes de fréquence EEG (Hz)
 BANDS = {
     'delta':    (0.5, 4),

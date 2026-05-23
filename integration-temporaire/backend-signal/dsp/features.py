@@ -189,7 +189,7 @@ def extract_features(epoch_filtered: np.ndarray,
 
     def bp(lo: float, hi: float) -> float:
         mask = (f >= lo) & (f <= hi)
-        return float(np.trapezoid(psd[mask], f[mask])) if mask.any() else 0.0
+        return float(np.trapz(psd[mask], f[mask])) if mask.any() else 0.0
 
     p_delta     = bp(1.0,  4.0)
     p_theta     = bp(6.0,  8.0)   # theta cognitif 6-8 Hz

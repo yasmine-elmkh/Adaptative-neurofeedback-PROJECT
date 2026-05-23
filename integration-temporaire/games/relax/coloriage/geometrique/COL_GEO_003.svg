@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+<rect width="400" height="400" fill="#FAFAF5"/>
+<polygon points="200.00,15.00 360.21,292.50 39.79,292.50" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<polygon points="347.89,114.62 200.00,370.77 52.11,114.62" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<polygon points="335.57,278.27 64.43,278.27 200.00,43.46" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<polygon points="200.00,342.31 76.76,128.85 323.24,128.85" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<polygon points="89.08,264.04 200.00,71.92 310.92,264.04" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<polygon points="101.41,143.08 298.59,143.08 200.00,313.85" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<polygon points="200.00,100.38 286.27,249.81 113.73,249.81" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<polygon points="273.95,157.31 200.00,285.38 126.05,157.31" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<polygon points="261.62,235.58 138.38,235.58 200.00,128.85" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<polygon points="200.00,256.92 150.70,171.54 249.30,171.54" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<polygon points="163.03,221.35 200.00,157.31 236.97,221.35" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<polygon points="175.35,185.77 224.65,185.77 200.00,228.46" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<line x1="200.0" y1="185.0" x2="200.0" y2="10.0" stroke="#2a2a3a" stroke-width="0.8"/>
+<line x1="213.0" y1="192.5" x2="364.5" y2="105.0" stroke="#2a2a3a" stroke-width="0.8"/>
+<line x1="213.0" y1="207.5" x2="364.5" y2="295.0" stroke="#2a2a3a" stroke-width="0.8"/>
+<line x1="200.0" y1="215.0" x2="200.0" y2="390.0" stroke="#2a2a3a" stroke-width="0.8"/>
+<line x1="187.0" y1="207.5" x2="35.5" y2="295.0" stroke="#2a2a3a" stroke-width="0.8"/>
+<line x1="187.0" y1="192.5" x2="35.5" y2="105.0" stroke="#2a2a3a" stroke-width="0.8"/>
+</svg>

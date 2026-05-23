@@ -5,8 +5,8 @@
 
 import { useState } from 'react'
 
-export default function WelcomePage({ onHardware, onFile }) {
-  const [hovered, setHovered] = useState(null)  // 'hardware' | 'file' | null
+export default function WelcomePage({ onHardware, onFile, onNeuroFeedback }) {
+  const [hovered, setHovered] = useState(null)  // 'hardware' | 'file' | 'neurofeedback' | null
 
   return (
     <div style={{
@@ -49,13 +49,13 @@ export default function WelcomePage({ onHardware, onFile }) {
         Comment souhaitez-vous utiliser l'application ?
       </div>
 
-      {/* Deux cartes de choix */}
+      {/* Trois cartes de choix */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
         gap: 20,
         width: '100%',
-        maxWidth: 600,
+        maxWidth: 820,
       }}>
 
         {/* ── Carte Hardware ── */}
@@ -97,6 +97,26 @@ export default function WelcomePage({ onHardware, onFile }) {
           onMouseEnter={() => setHovered('file')}
           onMouseLeave={() => setHovered(null)}
           onClick={onFile}
+        />
+
+        {/* ── Carte NeuroFeedback (Protocole + Feedback libre fusionnés) ── */}
+        <ChoiceCard
+          icon="🧠"
+          title="NeuroFeedback"
+          subtitle="Protocole 15 séances + Feedback libre"
+          description={[
+            'Protocole adaptatif 15 séances · 4 paliers P1→P4',
+            'Feedback libre déverrouillé après calibration',
+            'Signal EEG temps réel intégré (Fp2 · 250 Hz)',
+            'Seuil alpha adaptatif · Thompson Sampling',
+          ]}
+          badge="NEUROFEEDBACK"
+          badgeColor="#B87B9E"
+          accentColor="#B87B9E"
+          hovered={hovered === 'neurofeedback'}
+          onMouseEnter={() => setHovered('neurofeedback')}
+          onMouseLeave={() => setHovered(null)}
+          onClick={onNeuroFeedback}
         />
       </div>
 
@@ -205,7 +225,11 @@ function ChoiceCard({
         transition: 'all .2s ease',
         letterSpacing: .4,
       }}>
-        {title === 'Casque NeuroCap' ? '→ Configurer le WiFi' : '→ Importer un fichier'}
+        {title === 'Casque NeuroCap'
+          ? '→ Configurer le WiFi'
+          : title === 'NeuroFeedback'
+            ? '→ Ouvrir NeuroFeedback'
+            : '→ Importer un fichier'}
       </div>
     </div>
   )

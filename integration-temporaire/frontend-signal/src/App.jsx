@@ -25,13 +25,57 @@ import Sidebar           from './components/Sidebar.jsx'
 import MLClassifierCard  from './components/MLClassifierCard.jsx'
 import FileAnalysisTab   from './components/FileAnalysisTab.jsx'
 import Toast, { useToast } from './components/Toast.jsx'
+import LiveFeedbackTab   from './components/LiveFeedbackTab.jsx'
+import ProtocolSession  from './components/ProtocolSession.jsx'
 
 const API  = '/api'   // proxy Vite → http://localhost:8765/api
-const TABS = ['LIVE SIGNAL', 'FEATURES', 'HISTORIQUE', 'RAPPORT', 'ANALYSE FICHIER']
+const TABS = ['LIVE SIGNAL', 'FEATURES', 'HISTORIQUE', 'RAPPORT', 'ANALYSE FICHIER', 'NEUROFEEDBACK']
 
 const f3 = v => typeof v === 'number' ? v.toFixed(3) : '—'
 const f4 = v => typeof v === 'number' ? v.toFixed(4) : '—'
 const f1 = (v, u='') => typeof v === 'number' ? `${v.toFixed(1)}${u?' '+u:''}` : '—'
+
+// ─── Tab Neurofeedback : bascule Feedback libre / Protocole 15 séances ────────
+function NeurofeedbackTab({ eegState, features, bands }) {
+  const [nfMode, setNfMode] = useState('free')  // 'free' | 'protocol'
+
+  return (
+    <div style={{ flex:1, height:'100%', display:'flex', flexDirection:'column', gap:0 }}>
+      {/* Sélecteur de mode */}
+      <div style={{
+        display:'flex', gap:2, marginBottom:12, background:'rgba(255,255,255,.02)',
+        borderRadius:10, padding:3, border:'1px solid rgba(255,255,255,.05)',
+        alignSelf:'flex-start',
+      }}>
+        {[['free','🎵 Feedback libre'],['protocol','🧠 Protocole 15 séances']].map(([m,label]) => (
+          <button key={m} onClick={() => setNfMode(m)} style={{
+            padding:'6px 18px', borderRadius:8, fontSize:10, cursor:'pointer',
+            fontFamily:"'Space Mono',monospace", letterSpacing:.5,
+            background: nfMode===m ? 'rgba(0,229,176,.12)' : 'transparent',
+            border: nfMode===m ? '1px solid rgba(0,229,176,.3)' : '1px solid transparent',
+            color: nfMode===m ? '#00e5b0' : '#3a4a5e',
+            fontWeight: nfMode===m ? 700 : 400, transition:'all .15s',
+          }}>{label}</button>
+        ))}
+      </div>
+
+      {/* Contenu */}
+      <div style={{
+        flex:1, background:'#060a12',
+        border:'1px solid rgba(255,255,255,.05)',
+        borderRadius:14, padding:16,
+        display:'flex', flexDirection:'column',
+        overflowY:'auto',
+      }}>
+        {nfMode === 'free' ? (
+          <LiveFeedbackTab eegState={eegState} features={features} />
+        ) : (
+          <ProtocolSession eegState={eegState} features={features} bands={bands} />
+        )}
+      </div>
+    </div>
+  )
+}
 
 // ─── Composants UI locaux ──────────────────────────────────────────────────
 
@@ -135,7 +179,9 @@ export default function App({ onBack } = {}) {
 
   const { toast, toastState } = useToast()
   const rec = useRecording()
-  const manualClose = useRef(false)
+  const manualClose    = useRef(false)
+  // File de samples EEG → SignalCanvas drainée dans le RAF (bypasse le batching React)
+  const signalQueueRef = useRef([])
 
   // ── Qualité signal ──
   const qi = (() => {
@@ -177,6 +223,10 @@ export default function App({ onBack } = {}) {
         break
 
       case 'eeg':
+        // Push direct dans la file → drain dans le RAF de SignalCanvas (aucune perte par batching)
+        signalQueueRef.current.push({ uv: d.uv ?? 0, filtered: d.filtered ?? 0 })
+        // Cap à 125 samples (1s à 125 Hz) — évite accumulation si RAF ralentit
+        if (signalQueueRef.current.length > 125) signalQueueRef.current.splice(0, signalQueueRef.current.length - 125)
         setLastSample({ uv: d.uv, filtered: d.filtered })
         if (d.electrode_ok !== undefined) {
           setElectrodeOk(!!d.electrode_ok)
@@ -411,8 +461,11 @@ export default function App({ onBack } = {}) {
           epochCount={epochCount} rejectedCount={rejectedCount}
         />
 
-        <main style={{ flex:1, overflowY:'auto', padding:18,
-                       display:'flex', flexDirection:'column', gap:14 }}>
+        <main style={{
+          flex:1, padding:18, gap:14,
+          display:'flex', flexDirection:'column',
+          overflowY: tab === 5 ? 'hidden' : 'auto',
+        }}>
 
           {/* ══ TAB 0 — LIVE SIGNAL ══ */}
           {tab === 0 && (
@@ -432,7 +485,7 @@ export default function App({ onBack } = {}) {
                   <StatusDot active={electrodeOk} label={electrodeOk?'Électrodes OK':'Électrodes KO'} />
                 </div>
                 <div style={{ flex:1, minHeight:0 }}>
-                  <SignalCanvas wsData={lastSample} electrodeOk={electrodeOk} />
+                  <SignalCanvas wsData={lastSample} signalQueue={signalQueueRef} electrodeOk={electrodeOk} />
                 </div>
               </div>
 
@@ -593,6 +646,15 @@ export default function App({ onBack } = {}) {
           {/* ══ TAB 4 — ANALYSE FICHIER ══ */}
           {tab === 4 && (
             <FileAnalysisTab />
+          )}
+
+          {/* ══ TAB 5 — NEUROFEEDBACK (live) ══ */}
+          {tab === 5 && (
+            <NeurofeedbackTab
+              eegState={eegState}
+              features={feat}
+              bands={bands}
+            />
           )}
 
         </main>

@@ -25,6 +25,22 @@ app.add_middleware(
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
 
+# ── Feedback router (optionnel — ne bloque pas le démarrage si absent) ──
+try:
+    from routes.feedback import router as _feedback_router
+    app.include_router(_feedback_router)
+    logger.info("[API] Feedback router chargé → /api/feedback/*")
+except Exception as _e:
+    logger.warning(f"[API] Feedback router non disponible : {_e}")
+
+# ── Protocole 15 séances (optionnel) ────────────────────────────────────────
+try:
+    from protocol.neurofeedback_protocol import router as _protocol_router
+    app.include_router(_protocol_router)
+    logger.info("[API] Protocol router chargé → /api/protocol/*")
+except Exception as _e:
+    logger.warning(f"[API] Protocol router non disponible : {_e}")
+
 # ═══════════════════════════════════════════════════════════════
 # DSP
 # ═══════════════════════════════════════════════════════════════
@@ -92,9 +108,9 @@ def reset_on_disconnect():
             break
     logger.info(f"[DSP] Deconnexion ESP32 — {drained} samples purges de la queue")
 
-    # Reset du processeur DSP (filtres + epocher)
+    # Reset complet du processeur DSP (IIR states + CQE + warmup counter)
     try:
-        rt.epocher.pipeline.filters._dc_initialized = False
+        rt.reset()
     except Exception:
         pass
 
@@ -218,8 +234,8 @@ async def processing_loop():
             }
             payload.update(m)
 
-            # Broadcast EEG seulement 1 sample sur 4 → ~62 Hz pour le browser
-            if _display_counter % 4 == 0 and ws_manager:
+            # Broadcast EEG 1 sample sur 2 → ~125 Hz pour le browser (oscilloscope fluide)
+            if _display_counter % 2 == 0 and ws_manager:
                 await ws_manager.broadcast(payload)
 
             if electrode_mon.should_send_heartbeat():

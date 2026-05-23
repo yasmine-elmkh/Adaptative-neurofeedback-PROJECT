@@ -40,20 +40,16 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-html, body, #root {
+html, body {
   height: 100%;
-  overflow: hidden;
+}
+
+body {
+  overflow-y: auto;
 }
 
 #root {
   height: 100%;
-  overflow: hidden;
-}
-
-/* Page WifiSetup — scroll autorisé */
-.wifi-setup-page {
-  overflow-y: auto !important;
-  height: 100% !important;
 }
 body {
   font-family: var(--sans);

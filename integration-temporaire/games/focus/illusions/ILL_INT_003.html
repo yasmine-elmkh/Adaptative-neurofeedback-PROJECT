@@ -1,0 +1,36 @@
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+<title>Rayons Tournants — NeuroCap</title><style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0a12;color:#e0e0ff;font-family:system-ui;display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:16px}
+h1{font-size:18px;font-weight:500;margin-bottom:4px;color:#a0b4ff}
+.d{font-size:12px;color:#5060a0;margin-bottom:8px}
+.b{display:inline-block;padding:3px 10px;border-radius:12px;background:#1a2060;border:1px solid #3040a0;font-size:11px;color:#80a0ff;margin-bottom:14px}
+canvas{border:1px solid #1a2040;border-radius:8px;max-width:100%}
+.ctrl{margin-top:16px;width:100%;max-width:540px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cg{background:#0d0e1a;border:1px solid #1a2040;border-radius:8px;padding:10px 12px}
+.cg label{font-size:11px;color:#5060a0;display:flex;justify-content:space-between;margin-bottom:5px}
+.cg label span{color:#a0b4ff;font-weight:500}
+input[type=range]{width:100%;accent-color:#4060ff;height:4px}
+.btns{margin-top:12px;display:flex;gap:10px}
+button{padding:8px 20px;border-radius:20px;border:1px solid #3040a0;background:#0d1030;color:#80a0ff;cursor:pointer;font-size:12px}
+</style></head><body>
+<h1>Rayons Tournants</h1><p class="d">Les rayons semblent tourner en sens opposés</p><span class="b">⚡ Beta occipital V5</span>
+<canvas id="c" width="540" height="540"></canvas>
+<div class="ctrl"><div class="cg"><label>Vitesse <span id="spdV">2</span></label><input type="range" id="spd" min="0.1" max="5" step="0.1" value="2" oninput="document.getElementById('spdV').textContent=this.value"></div><div class="cg"><label>Rayons <span id="spkV">12</span></label><input type="range" id="spk" min="4" max="24" step="1" value="12" oninput="document.getElementById('spkV').textContent=this.value"></div><div class="cg"><label>Teinte <span id="colV">0</span></label><input type="range" id="col" min="0" max="360" step="1" value="0" oninput="document.getElementById('colV').textContent=this.value"></div><div class="cg"><label>Opacité <span id="opcV">0.5</span></label><input type="range" id="opc" min="0.1" max="1" step="0.05" value="0.5" oninput="document.getElementById('opcV').textContent=this.value"></div></div>
+<div class="btns"><button id="bp">⏸ Pause</button><button id="br">↺ Reset</button></div>
+<script>
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
+let running=true,frame=0;
+document.getElementById('bp').addEventListener('click',function(){running=!running;this.textContent=running?'⏸ Pause':'▶ Play';if(running)go();});
+document.getElementById('br').addEventListener('click',()=>frame=0);
+function gv(id){return parseFloat(document.getElementById(id).value);}
+const W=canvas.width,H=canvas.height,CX=W/2,CY=H/2;
+function draw(){ctx.fillStyle='#0a0a12';ctx.fillRect(0,0,W,H);
+const n=parseInt(gv('spk')),sp=gv('spd'),hue=gv('col'),op=gv('opc'),a=frame*sp*0.01;
+for(let i=0;i<n;i++){const a1=a+i*2*Math.PI/n,h2=(hue+i*360/n)%360;
+ctx.beginPath();ctx.moveTo(CX,CY);ctx.arc(CX,CY,240,a1,a1+Math.PI/n);ctx.closePath();
+ctx.fillStyle=i%2===0?`hsla(${h2},70%,60%,${op})`:`hsla(${(h2+180)%360},70%,40%,${op})`;ctx.fill();}
+ctx.beginPath();ctx.arc(CX,CY,40,0,Math.PI*2);ctx.fillStyle='#0a0a12';ctx.fill();
+ctx.strokeStyle='#4060ff';ctx.lineWidth=2;ctx.stroke();}
+function go(){if(!running)return;frame++;draw();requestAnimationFrame(go);}go();
+</script></body></html>

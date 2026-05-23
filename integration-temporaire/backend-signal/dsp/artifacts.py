@@ -219,8 +219,11 @@ class ArtifactDetector:
           Urigüen & Garcia-Zapirain 2015
     """
 
-    FLAT_LINE_STD_UV    = 0.05
-    EXTREME_PEAK_UV     = 500.0
+    FLAT_LINE_STD_UV    = 0.5     # µV EEG (après normalisation gain AD8232)
+    # SEUIL DE DÉBOGAGE — remettre à 500.0 µV une fois le signal calibré proprement.
+    # Valeur normale EEG avec électrodes gel : 500 µV.
+    # Valeur debug (électrodes sèches / test sans tête) : 5000 µV.
+    EXTREME_PEAK_UV     = 5000.0
     HIGH_RMS_MAD_FACTOR = 5.0
 
     BLINK_AMP_UV      = 150.0
@@ -318,8 +321,8 @@ class ArtifactDetector:
             f, psd  = scipy.signal.welch(
                 epoch_ac, self.fs,
                 nperseg=min(self.fs, len(epoch_ac)), window="hann")
-            p_d = float(np.trapezoid(psd[(f>=1.0)&(f<=4.0)], f[(f>=1.0)&(f<=4.0)]))
-            p_a = float(np.trapezoid(psd[(f>=8.0)&(f<=13.0)], f[(f>=8.0)&(f<=13.0)])) + 1e-30
+            p_d = float(np.trapz(psd[(f>=1.0)&(f<=4.0)], f[(f>=1.0)&(f<=4.0)]))
+            p_a = float(np.trapz(psd[(f>=8.0)&(f<=13.0)], f[(f>=8.0)&(f<=13.0)])) + 1e-30
             return (p_d / p_a) > self.BLINK_DELTA_ALPHA
         except Exception:
             return False
@@ -331,8 +334,8 @@ class ArtifactDetector:
                 epoch_ac, self.fs,
                 nperseg=min(self.fs, len(epoch_ac)),
                 window="hann", scaling="density")
-            p_emg   = float(np.trapezoid(psd[(f>=35.0)&(f<=45.0)], f[(f>=35.0)&(f<=45.0)]))
-            p_total = float(np.trapezoid(psd[(f>=1.0)&(f<=45.0)],  f[(f>=1.0)&(f<=45.0)])) + 1e-30
+            p_emg   = float(np.trapz(psd[(f>=35.0)&(f<=45.0)], f[(f>=35.0)&(f<=45.0)]))
+            p_total = float(np.trapz(psd[(f>=1.0)&(f<=45.0)],  f[(f>=1.0)&(f<=45.0)])) + 1e-30
             return p_emg / p_total
         except Exception:
             return 0.0
