@@ -86,23 +86,35 @@ export default function Login() {
   const login = useAuthStore((s) => s.login)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [error,     setError]     = useState('')
+  const [errorType, setErrorType] = useState('')  // 'no_account' | 'wrong_password' | ''
+  const [loading,   setLoading]   = useState(false)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    setErrorType('')
     setLoading(true)
     try {
       await login(email, password)
-      // Redirect to role-appropriate home page
       const user = useAuthStore.getState().user
       const role = user?.role ?? 'patient'
-      if (role === 'admin')      navigate('/admin')
-      else if (role === 'therapist') navigate('/therapist')
-      else                       navigate('/dashboard')
+      if (role === 'admin')           navigate('/admin')
+      else if (role === 'therapist')  navigate('/therapist')
+      else                            navigate('/dashboard')
     } catch (err) {
-      setError(err.message || t('auth.login.error_generic'))
+      const status = err?.response?.status
+      const detail = err?.response?.data?.detail || err.message || ''
+      if (status === 404 || detail.toLowerCase().includes('aucun compte') || detail.toLowerCase().includes('no account')) {
+        setErrorType('no_account')
+        setError(t('auth.login.error_no_account'))
+      } else if (status === 401 || detail.toLowerCase().includes('mot de passe') || detail.toLowerCase().includes('password')) {
+        setErrorType('wrong_password')
+        setError(t('auth.login.error_wrong_password'))
+      } else {
+        setErrorType('')
+        setError(detail || t('auth.login.error_generic'))
+      }
     } finally {
       setLoading(false)
     }
@@ -162,8 +174,16 @@ export default function Login() {
               </div>
 
               {error && (
-                <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-nc-danger/10 border border-nc-danger/20 text-nc-danger text-sm">
-                  {error}
+                <div className="px-4 py-3 rounded-xl bg-nc-danger/10 border border-nc-danger/20 text-nc-danger text-sm space-y-1">
+                  <p>{error}</p>
+                  {errorType === 'no_account' && (
+                    <p className="text-nc-muted text-xs">
+                      {t('auth.login.no_account')}{' '}
+                      <Link to="/register" className="text-nc-accent hover:underline font-medium">
+                        {t('auth.login.sign_up')}
+                      </Link>
+                    </p>
+                  )}
                 </div>
               )}
 

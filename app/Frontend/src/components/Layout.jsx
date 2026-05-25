@@ -4,9 +4,9 @@ import { useTranslation } from 'react-i18next'
 import { useTheme } from '../context/ThemeContext'
 import { useAuthStore } from '../stores'
 import {
-  LayoutDashboard, Brain, History, MessageSquareText,
+  LayoutDashboard, Brain, History,
   CircleUser, LogOut, Sun, Moon, Monitor, ChevronDown, Menu, X,
-  Globe, Shield, Users, BookOpen,
+  Globe, Shield, Users, Sparkles,
 } from 'lucide-react'
 
 /* ── Theme cycle: auto → light → dark → auto ── */
@@ -137,9 +137,8 @@ export default function Layout() {
   const NAV_ITEMS = [
     { to: '/dashboard',       Icon: LayoutDashboard,    key: 'nav.dashboard',      roles: null,                   exclude: []                    },
     { to: '/eeg',             Icon: Brain,              key: 'nav.eeg',            roles: null,                   exclude: ['admin', 'therapist'] },
-    { to: '/electrode-guide', Icon: BookOpen,           key: 'nav.electrodeGuide', roles: null,                   exclude: ['admin', 'therapist'] },
+    { to: '/feedback',        Icon: Sparkles,           key: 'nav.feedback',       roles: null,                   exclude: ['admin', 'therapist'] },
     { to: '/history',         Icon: History,            key: 'nav.history',        roles: null,                   exclude: ['admin', 'therapist'] },
-    { to: '/assistant',       Icon: MessageSquareText,  key: 'nav.assistant',      roles: null,                   exclude: ['admin', 'therapist'] },
     { to: '/profile',         Icon: CircleUser,         key: 'nav.profile',        roles: null,                   exclude: []                    },
     { to: '/therapist',       Icon: Users,              key: 'nav.therapist',      roles: ['therapist', 'admin'], exclude: ['admin']              },
     { to: '/admin',           Icon: Shield,             key: 'nav.admin',          roles: ['admin'],              exclude: []                    },

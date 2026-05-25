@@ -1,12 +1,12 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '../stores'
-import { sessions as sessionsApi, eeg as eegApi } from '../utils/api'
+import { sessions as sessionsApi, eeg as eegApi, assistant as assistantApi } from '../utils/api'
 import {
   LayoutDashboard, TrendingUp, TrendingDown, Activity, Award, ChartBar,
   Play, CalendarDays, Target, Star, Flame, Zap,
-  Trophy, Brain, FileText,
+  Trophy, Brain, FileText, MessageSquareText, X, Send, Bot, User, Sparkles,
 } from 'lucide-react'
 import {
   LineChart, Line, AreaChart, Area,
@@ -342,16 +342,151 @@ function EEGRecordingsPanel({ reports, sessions }) {
 }
 
 
+// ── Mini assistant flottant ──────────────────────────────────────────────────
+let _fid = 0
+const mkFMsg = (role, text) => ({ id: ++_fid, role, text })
+
+function FloatingAssistant({ open, onToggle }) {
+  const [messages, setMessages] = useState([])
+  const [input,    setInput]    = useState('')
+  const [loading,  setLoading]  = useState(false)
+  const bottomRef = useRef()
+
+  useEffect(() => {
+    if (open && messages.length === 0) {
+      setMessages([mkFMsg('assistant', 'Bonjour ! Je suis votre assistant NeuroCap. Posez-moi vos questions sur vos sessions EEG, votre progression ou le neurofeedback.')])
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (open) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, open])
+
+  const send = useCallback(async (text = input.trim()) => {
+    if (!text || loading) return
+    setMessages(m => [...m, mkFMsg('user', text)])
+    setInput('')
+    setLoading(true)
+    try {
+      const res = await assistantApi.ask(text, null, null)
+      setMessages(m => [...m, mkFMsg('assistant', res.response ?? res.answer ?? 'Une erreur est survenue.')])
+    } catch {
+      setMessages(m => [...m, mkFMsg('assistant', 'Impossible de contacter l\'assistant pour le moment.')])
+    } finally {
+      setLoading(false)
+    }
+  }, [input, loading])
+
+  return (
+    <>
+      {/* Panel chat flottant */}
+      {open && (
+        <div
+          className="fixed bottom-24 end-6 z-50 flex flex-col rounded-2xl shadow-glass-lg border border-nc-border overflow-hidden animate-fade-in"
+          style={{ width: 340, height: 480, background: 'rgb(var(--nc-surface))' }}
+        >
+          {/* Header */}
+          <div className="flex items-center gap-2.5 px-4 py-3 border-b border-nc-border shrink-0"
+               style={{ background: 'linear-gradient(135deg, rgb(var(--nc-accent)/0.12), rgb(var(--nc-accent)/0.05))' }}>
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white shrink-0"
+                 style={{ background: 'linear-gradient(135deg, rgb(var(--nc-accent)), rgb(var(--nc-accent)/0.6))' }}>
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-nc-text">Assistant NeuroCap</p>
+              <p className="text-[10px] text-nc-muted">IA — Questions EEG & neurofeedback</p>
+            </div>
+            <button onClick={onToggle} className="p-1 rounded-lg text-nc-muted hover:text-nc-text hover:bg-nc-surface2 transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            {messages.map(m => (
+              <div key={m.id} className={`flex gap-2 ${m.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5
+                                 ${m.role === 'user' ? 'bg-nc-accent/20 text-nc-accent' : 'text-white'}`}
+                     style={m.role !== 'user' ? { background: 'linear-gradient(135deg, rgb(var(--nc-accent)), rgb(var(--nc-accent)/0.6))' } : {}}>
+                  {m.role === 'user' ? <User className="w-3 h-3" /> : <Bot className="w-3 h-3" />}
+                </div>
+                <div className={`px-3 py-2 rounded-xl text-xs leading-relaxed max-w-[78%]
+                                 ${m.role === 'user'
+                                   ? 'bg-nc-accent text-white rounded-tr-sm'
+                                   : 'bg-nc-surface2 text-nc-text rounded-tl-sm border border-nc-border'}`}>
+                  {m.text}
+                </div>
+              </div>
+            ))}
+            {loading && (
+              <div className="flex gap-2">
+                <div className="w-6 h-6 rounded-full flex items-center justify-center text-white shrink-0"
+                     style={{ background: 'linear-gradient(135deg, rgb(var(--nc-accent)), rgb(var(--nc-accent)/0.6))' }}>
+                  <Bot className="w-3 h-3" />
+                </div>
+                <div className="px-3 py-2 rounded-xl bg-nc-surface2 border border-nc-border">
+                  <div className="flex gap-1">
+                    {[0,1,2].map(i => (
+                      <div key={i} className="w-1.5 h-1.5 rounded-full bg-nc-muted animate-bounce"
+                           style={{ animationDelay: `${i * 0.15}s` }} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          {/* Input */}
+          <div className="p-3 border-t border-nc-border shrink-0">
+            <div className="flex gap-2">
+              <input
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+                placeholder="Posez votre question…"
+                className="flex-1 bg-nc-surface2 border border-nc-border rounded-xl px-3 py-2 text-xs text-nc-text placeholder:text-nc-muted focus:outline-none focus:border-nc-accent/60 transition-colors"
+              />
+              <button
+                onClick={() => send()}
+                disabled={!input.trim() || loading}
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-white transition-all disabled:opacity-40"
+                style={{ background: 'linear-gradient(135deg, rgb(var(--nc-accent)), rgb(var(--nc-accent)/0.7))' }}
+              >
+                <Send className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bouton flottant */}
+      <button
+        onClick={onToggle}
+        className="fixed bottom-6 end-6 z-50 w-14 h-14 rounded-2xl text-white shadow-glass-lg
+                   flex items-center justify-center transition-all hover:scale-110 active:scale-95"
+        style={{ background: open
+          ? 'linear-gradient(135deg, rgb(var(--nc-accent)/0.7), rgb(var(--nc-accent)/0.5))'
+          : 'linear-gradient(135deg, rgb(var(--nc-accent)), rgb(var(--nc-accent)/0.7))' }}
+        title="Assistant NeuroCap"
+      >
+        {open ? <X className="w-5 h-5" /> : <MessageSquareText className="w-5 h-5" />}
+      </button>
+    </>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const { t }    = useTranslation()
   const { user } = useAuthStore()
   const navigate = useNavigate()
 
-  const [sessionList, setSessionList] = useState([])
-  const [loading,     setLoading]     = useState(true)
-  const [objFilter,   setObjFilter]   = useState('all')
-  const [eegReports,  setEegReports]  = useState([])
+  const [sessionList,    setSessionList]    = useState([])
+  const [loading,        setLoading]        = useState(true)
+  const [objFilter,      setObjFilter]      = useState('all')
+  const [eegReports,     setEegReports]     = useState([])
+  const [assistantOpen,  setAssistantOpen]  = useState(false)
 
   useEffect(() => {
     sessionsApi.list()
@@ -418,7 +553,13 @@ export default function DashboardPage() {
 
   // ── Main layout ──────────────────────────────────────────────────────────────
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+    <div
+      className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8"
+      style={{
+        paddingRight: assistantOpen ? 'calc(364px + max(1.5rem, (100vw - 80rem) / 2))' : undefined,
+        transition: 'padding-right 0.3s ease',
+      }}
+    >
 
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-slide-up">
@@ -569,6 +710,9 @@ export default function DashboardPage() {
           </div>
         </>
       )}
+
+      {/* Bouton flottant Assistant */}
+      <FloatingAssistant open={assistantOpen} onToggle={() => setAssistantOpen(o => !o)} />
     </div>
   )
 }

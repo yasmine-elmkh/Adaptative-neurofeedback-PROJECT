@@ -10,12 +10,39 @@ from pydantic import BaseModel, EmailStr, Field
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
+class EmailVerificationRequest(BaseModel):
+    email: EmailStr
+
+
+class EmailReminderRequest(BaseModel):
+    user_id: str
+    message: str = Field("", max_length=500)
+
+
+class EmailReminderAllRequest(BaseModel):
+    message: str = Field("", max_length=500)
+    days_inactive: int = Field(30, ge=1, le=365)
+
+
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=6)
+    password: str = Field(min_length=8)
     first_name: Optional[str] = Field(None, max_length=100)
     last_name: Optional[str] = Field(None, max_length=100)
     username: Optional[str] = Field(None, min_length=3, max_length=100)
+    verification_code: str = Field(min_length=8, max_length=8)
+
+    @property
+    def password_is_strong(self) -> bool:
+        import re
+        p = self.password
+        return (
+            len(p) >= 8
+            and bool(re.search(r'[A-Z]', p))
+            and bool(re.search(r'[a-z]', p))
+            and bool(re.search(r'[0-9]', p))
+            and bool(re.search(r'[^A-Za-z0-9]', p))
+        )
 
 
 class UserLogin(BaseModel):

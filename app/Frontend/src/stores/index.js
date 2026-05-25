@@ -13,8 +13,8 @@ export const useAuthStore = create((set, get) => ({
     const user = await auth.me()
     set({ user, token: res.access_token })
   },
-  register: async (email, password, firstName, lastName) => {
-    const res = await auth.register(email, password, firstName, lastName)
+  register: async (email, password, firstName, lastName, verificationCode) => {
+    const res = await auth.register(email, password, firstName, lastName, verificationCode)
     localStorage.setItem('neurocap_token', res.access_token)
     localStorage.setItem('neurocap_refresh', res.refresh_token)
     const user = await auth.me()

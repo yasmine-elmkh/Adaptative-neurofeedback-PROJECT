@@ -17,6 +17,7 @@ import EEGSelector             from './pages/EEGSelector'
 import EEGLive                 from './pages/EEGLive'
 import EEGFile                 from './pages/EEGFile'
 import ElectrodeGuide          from './pages/ElectrodeGuide'
+import FeedbackPage             from './pages/FeedbackPage'
 
 import { useAuthStore } from './stores'
 
@@ -96,6 +97,7 @@ export default function App() {
           <Route path="/eeg-live"         element={<EEGLive />} />
           <Route path="/eeg-file"         element={<EEGFile />} />
           <Route path="/electrode-guide"  element={<ElectrodeGuide />} />
+          <Route path="/feedback"         element={<FeedbackPage />} />
 
           {/* Admin only */}
           <Route path="/admin" element={

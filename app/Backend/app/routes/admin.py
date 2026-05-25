@@ -29,7 +29,9 @@ from app.schemas import (
     AdminStats, UserOut, UserWithStats, AuditLogOut, UserRoleUpdate,
     UserCreateByAdmin, PatientAssign,
     SystemSettingOut, SystemSettingUpdate,
+    EmailReminderRequest, EmailReminderAllRequest,
 )
+from app.services.email_service import send_reminder_email, EmailSendError
 
 router = APIRouter(prefix="/api/admin", tags=["Administration"])
 
@@ -454,3 +456,99 @@ async def list_audit_logs(
 
     resp = await query.execute()
     return resp.data or []
+
+
+# ── Email reminders ───────────────────────────────────────────────────────────
+
+def _days_inactive(last_session_date: str | None) -> int:
+    if not last_session_date:
+        return 9999
+    try:
+        last = datetime.fromisoformat(last_session_date.replace("Z", "+00:00"))
+        return (datetime.now(timezone.utc) - last).days
+    except Exception:
+        return 9999
+
+
+@router.post("/send-reminder", status_code=200)
+async def send_reminder_to_user(
+    data: EmailReminderRequest,
+    current_admin=Depends(get_admin_user),
+    db: AsyncClient = Depends(get_db),
+):
+    """
+    Envoie un email de rappel à un utilisateur spécifique.
+    """
+    resp = await db.table("users").select("id,email,first_name,is_active").eq("id", data.user_id).execute()
+    user = resp.data[0] if resp.data else None
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+
+    # Récupère la date de dernière session
+    sess = await db.table("sessions").select("started_at").eq("user_id", data.user_id)\
+        .order("started_at", desc=True).limit(1).execute()
+    last_date = sess.data[0]["started_at"] if sess.data else None
+    days = _days_inactive(last_date)
+
+    try:
+        await send_reminder_email(
+            to_email=user["email"],
+            first_name=user.get("first_name") or "",
+            days_inactive=days if days < 9999 else 0,
+            admin_message=data.message,
+        )
+    except EmailSendError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    await _audit(db, current_admin["id"], "EMAIL_REMINDER_SENT",
+                 f"Rappel envoyé à {user['email']} (user_id={data.user_id})")
+
+    return {"success": True, "email": user["email"]}
+
+
+@router.post("/send-reminder-all", status_code=200)
+async def send_reminder_to_all_inactive(
+    data: EmailReminderAllRequest,
+    current_admin=Depends(get_admin_user),
+    db: AsyncClient = Depends(get_db),
+):
+    """
+    Envoie un email de rappel à tous les patients inactifs depuis N jours.
+    Retourne le nombre de succès et d'échecs.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=data.days_inactive)).isoformat()
+
+    # Récupère les patients actifs avec leurs dernières sessions
+    users_resp = await db.table("users").select("id,email,first_name")\
+        .eq("role", "patient").eq("is_active", True).execute()
+    all_patients = users_resp.data or []
+
+    sent, failed, skipped = 0, 0, 0
+    errors = []
+
+    for u in all_patients:
+        sess = await db.table("sessions").select("started_at").eq("user_id", u["id"])\
+            .order("started_at", desc=True).limit(1).execute()
+        last_date = sess.data[0]["started_at"] if sess.data else None
+        days = _days_inactive(last_date)
+
+        if days < data.days_inactive:
+            skipped += 1
+            continue
+
+        try:
+            await send_reminder_email(
+                to_email=u["email"],
+                first_name=u.get("first_name") or "",
+                days_inactive=days if days < 9999 else 0,
+                admin_message=data.message,
+            )
+            sent += 1
+        except EmailSendError as exc:
+            failed += 1
+            errors.append({"email": u["email"], "error": str(exc)})
+
+    await _audit(db, current_admin["id"], "EMAIL_REMINDER_ALL",
+                 f"Rappels envoyés : {sent} succès, {failed} échecs, {skipped} actifs ignorés")
+
+    return {"sent": sent, "failed": failed, "skipped": skipped, "errors": errors}

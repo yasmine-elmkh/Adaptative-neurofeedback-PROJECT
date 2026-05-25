@@ -8,8 +8,15 @@ API.interceptors.request.use((config) => {
 })
 
 export const auth = {
-  register: (email, password, firstName, lastName) =>
-    API.post('/auth/register', { email, password, first_name: firstName, last_name: lastName }).then(res => res.data),
+  sendCode: (email) =>
+    API.post('/auth/send-code', { email }).then(res => res.data),
+  register: (email, password, firstName, lastName, verificationCode) =>
+    API.post('/auth/register', {
+      email, password,
+      first_name: firstName,
+      last_name: lastName,
+      verification_code: verificationCode,
+    }).then(res => res.data),
   login: (email, password) => API.post('/auth/login', { email, password }).then(res => res.data),
   me: () => API.get('/auth/me').then(res => res.data),
   changePassword: (newPassword) =>
@@ -79,6 +86,12 @@ export const admin = {
         date_to: dateTo || undefined,
       },
     }).then(r => r.data),
+
+  // Email reminders
+  sendReminder: (userId, message = '') =>
+    API.post('/admin/send-reminder', { user_id: userId, message }).then(r => r.data),
+  sendReminderAll: (message = '', daysInactive = 30) =>
+    API.post('/admin/send-reminder-all', { message, days_inactive: daysInactive }).then(r => r.data),
 }
 
 export const therapist = {

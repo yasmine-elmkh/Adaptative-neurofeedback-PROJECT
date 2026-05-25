@@ -183,10 +183,22 @@ export default function AdminDashboard() {
   const [warnings,     setWarnings]     = useState([])
   const [trendRange,   setTrendRange]   = useState('week')
   const [sendingEmail, setSendingEmail] = useState(null)
+  const [sendingAll,   setSendingAll]   = useState(false)
+  const [toasts,       setToasts]       = useState([])
+  const [reminderModal, setReminderModal] = useState(null) // null | 'one' | 'all'
+  const [reminderTarget, setReminderTarget] = useState(null) // user object for 'one'
+  const [reminderMsg,  setReminderMsg]  = useState('')
 
   const [search,     setSearch]     = useState('')
   const [roleFilter, setRoleFilter] = useState('')
   const [modal,      setModal]      = useState(null)
+
+  /* ── Toast helpers ── */
+  const toast = (msg, type = 'success') => {
+    const id = Date.now()
+    setToasts(prev => [...prev, { id, msg, type }])
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000)
+  }
 
   /* ── Load ── */
   const load = useCallback(async () => {
@@ -248,6 +260,37 @@ export default function AdminDashboard() {
       } else {
         setTherapists(prev => prev.filter(t => t.id !== saved.id))
       }
+    }
+  }
+
+  /* ── Email reminder handlers ── */
+  const handleSendReminder = async () => {
+    if (!reminderTarget) return
+    setSendingEmail(reminderTarget.id)
+    try {
+      await adminApi.sendReminder(reminderTarget.id, reminderMsg)
+      toast(`Rappel envoyé à ${reminderTarget.email}`)
+    } catch {
+      toast(`Échec d'envoi à ${reminderTarget.email}`, 'error')
+    } finally {
+      setSendingEmail(null)
+      setReminderModal(null)
+      setReminderTarget(null)
+      setReminderMsg('')
+    }
+  }
+
+  const handleSendReminderAll = async () => {
+    setSendingAll(true)
+    try {
+      const res = await adminApi.sendReminderAll(reminderMsg, 30)
+      toast(`${res.sent} rappel(s) envoyé(s) — ${res.failed} échec(s)`, res.failed > 0 ? 'warn' : 'success')
+    } catch {
+      toast('Erreur lors de l\'envoi groupé', 'error')
+    } finally {
+      setSendingAll(false)
+      setReminderModal(null)
+      setReminderMsg('')
     }
   }
 
@@ -549,6 +592,16 @@ export default function AdminDashboard() {
             <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
               {inactiveUsers.length}
             </span>
+            <button
+              onClick={() => { setReminderModal('all'); setReminderMsg('') }}
+              disabled={sendingAll}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 hover:bg-yellow-500/20 transition-colors disabled:opacity-50"
+            >
+              {sendingAll
+                ? <span className="w-3 h-3 border border-yellow-400/30 border-t-yellow-400 rounded-full animate-spin" />
+                : <Mail className="w-3.5 h-3.5" />}
+              Envoyer à tous
+            </button>
           </div>
           <div className="divide-y divide-nc-border max-h-72 overflow-y-auto">
             {inactiveUsers.slice(0, 20).map(u => {
@@ -571,12 +624,7 @@ export default function AdminDashboard() {
                     <RoleBadge role={u.role} />
                   </div>
                   <button
-                    onClick={async () => {
-                      setSendingEmail(u.id)
-                      await new Promise(r => setTimeout(r, 800))
-                      setSendingEmail(null)
-                      alert(`Email de rappel envoyé à ${u.email}`)
-                    }}
+                    onClick={() => { setReminderTarget(u); setReminderMsg(''); setReminderModal('one') }}
                     disabled={sendingEmail === u.id}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs bg-nc-accent/10 text-nc-accent hover:bg-nc-accent/20 transition-colors disabled:opacity-50 shrink-0"
                     title="Envoyer un rappel"
@@ -702,7 +750,7 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* ── Modal ── */}
+      {/* ── User form modal ── */}
       {modal && (
         <UserFormModal
           user={modal === 'create' ? null : modal}
@@ -711,6 +759,89 @@ export default function AdminDashboard() {
           onSave={handleSave}
         />
       )}
+
+      {/* ── Reminder modal ── */}
+      {reminderModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-nc-surface border border-nc-border rounded-2xl shadow-glass w-full max-w-md">
+            <div className="p-5 border-b border-nc-border flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-nc-accent/10 flex items-center justify-center">
+                <Mail className="w-4 h-4 text-nc-accent" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-nc-text">
+                  {reminderModal === 'all'
+                    ? `Envoyer un rappel à ${inactiveUsers.length} utilisateur(s) inactif(s)`
+                    : `Rappel pour ${reminderTarget?.first_name || reminderTarget?.email}`}
+                </h3>
+                <p className="text-xs text-nc-muted mt-0.5">
+                  {reminderModal === 'all'
+                    ? 'Un email personnalisé sera envoyé à chaque utilisateur inactif depuis +30 jours'
+                    : `Email envoyé à ${reminderTarget?.email}`}
+                </p>
+              </div>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-nc-muted mb-1.5">
+                  Message personnalisé (optionnel)
+                </label>
+                <textarea
+                  value={reminderMsg}
+                  onChange={e => setReminderMsg(e.target.value)}
+                  placeholder="Ex : Nous avons préparé de nouvelles sessions adaptées à votre progression..."
+                  maxLength={500}
+                  rows={4}
+                  className="w-full bg-nc-surface2 border border-nc-border rounded-xl px-3 py-2.5 text-sm text-nc-text placeholder:text-nc-muted/60 resize-none focus:outline-none focus:border-nc-accent transition-colors"
+                />
+                <p className="text-[11px] text-nc-muted/60 mt-1 text-right">{reminderMsg.length}/500</p>
+              </div>
+              <div className="bg-nc-surface2/60 rounded-xl px-4 py-3 text-xs text-nc-muted leading-relaxed">
+                L'email inclut automatiquement le nombre de jours d'inactivité et un lien pour reprendre les sessions.
+              </div>
+            </div>
+            <div className="p-5 border-t border-nc-border flex items-center justify-end gap-3">
+              <button
+                onClick={() => { setReminderModal(null); setReminderMsg('') }}
+                className="px-4 py-2 rounded-xl text-sm text-nc-muted hover:text-nc-text transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={reminderModal === 'all' ? handleSendReminderAll : handleSendReminder}
+                disabled={sendingEmail !== null || sendingAll}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-medium bg-nc-accent text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {(sendingEmail !== null || sendingAll)
+                  ? <span className="w-3.5 h-3.5 border border-white/30 border-t-white rounded-full animate-spin" />
+                  : <Mail className="w-3.5 h-3.5" />}
+                Envoyer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Toast notifications ── */}
+      <div className="fixed bottom-6 end-6 z-50 flex flex-col gap-2 pointer-events-none">
+        {toasts.map(t => (
+          <div
+            key={t.id}
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl shadow-glass border text-sm font-medium
+              backdrop-blur-md pointer-events-auto animate-in slide-in-from-bottom-2 duration-300
+              ${t.type === 'error'
+                ? 'bg-red-500/10 border-red-500/30 text-red-400'
+                : t.type === 'warn'
+                ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
+                : 'bg-green-500/10 border-green-500/30 text-green-400'}`}
+          >
+            {t.type === 'error'
+              ? <XCircle className="w-4 h-4 shrink-0" />
+              : <CheckCircle className="w-4 h-4 shrink-0" />}
+            {t.msg}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

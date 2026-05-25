@@ -74,6 +74,20 @@ class Settings:
         "../../models/best_model.pt",
     )
 
+    # ── Email SMTP via Brevo (vérification à l'inscription) ───────────────────
+    # Brevo (ex-Sendinblue) : 300 emails/jour gratuits, pas de domaine requis.
+    # Setup (3 min) :
+    #   1. Créer compte sur https://brevo.com
+    #   2. Menu gauche → SMTP & API → onglet SMTP
+    #   3. Copier : Login (ton email Brevo) + Master password (clé SMTP)
+    #   4. Remplir SMTP_USER et SMTP_PASSWORD ci-dessous
+    # Si SMTP_USER est vide → mode dev : le code s'affiche sur la page
+    SMTP_HOST: str = os.getenv("SMTP_HOST", "smtp-relay.brevo.com")
+    SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USER: str = os.getenv("SMTP_USER", "")           # ton email Brevo
+    SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")   # clé SMTP Brevo (pas ton mdp)
+    SMTP_FROM: str = os.getenv("SMTP_FROM", "NeuroCap <noreply@neurocap.app>")
+
     # ── Redis (cache optionnel) ────────────────────────────────────────────────
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379")
 
