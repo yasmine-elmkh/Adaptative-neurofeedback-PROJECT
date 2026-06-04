@@ -457,5 +457,5 @@ def compute_band_powers(sig, fs):
     out = {}
     for name, (f_lo, f_hi) in bands.items():
         mask = (freqs >= f_lo) & (freqs <= f_hi)
-        out[name] = float(np.trapezoid(psd[mask], freqs[mask]))
+        out[name] = float(np.trapz(psd[mask], freqs[mask]))
     return out

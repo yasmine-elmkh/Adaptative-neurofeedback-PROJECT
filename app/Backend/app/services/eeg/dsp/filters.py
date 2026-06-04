@@ -58,6 +58,12 @@ class FilterBank:
         self.zi_bp           = lfilter_zi(self.b_bp,    self.a_bp)    * 0
         self._dc_initialized = False
 
+        # EMA DC removal — τ ≈ 1.3 s @ 250 Hz (α = 3/1000)
+        # Supprime le DC offset massif de l'AD8232 (~1 650 000 µV)
+        # sans attendre la convergence lente du filtre HP Butterworth.
+        self._dc_avg   = None
+        self._DC_ALPHA = 0.003   # 1 / (FS * τ), τ ≈ 1.3 s
+
     # ── Pipeline époque (zéro-phase) ─────────────────────────────
 
     def filter_epoch(self, epoch: np.ndarray) -> np.ndarray:
@@ -87,37 +93,50 @@ class FilterBank:
 
     def filter_sample(self, uv: float) -> float:
         """
-        Filtre causal pour l'affichage temps réel.
+        Filtre causal temps réel — pipeline complet :
+          1. Suppression DC par EMA (τ ≈ 1.3 s) → signal AC pur dès le 1er échantillon
+          2. Notch 50 Hz  (lfilter causal)
+          3. Notch 100 Hz (lfilter causal)
+          4. Bandpass 1–45 Hz Butterworth ordre 4 (lfilter causal)
 
-        Initialisation lazy : zi_bp initialisé avec uv du 1er échantillon
-        pour absorber le DC offset (~1 650 000 µV) et éviter le transitoire
-        de démarrage (spike de 2-5 s sinon).
+        La suppression DC par EMA remplace l'initialisation zi_bp*uv
+        qui laissait un transitoire visible de 1-2 s sur les électrodes sèches.
 
-        Ref : Widmann et al. 2015 §2.1
+        Ref : Widmann et al. 2015 §2.1 ; Parks & McClellan 1979 (DC removal)
         """
+        # ── Étape 1 : suppression DC rapide par EMA ────────────────
+        if self._dc_avg is None:
+            self._dc_avg = uv          # Initialisation instantanée au premier échantillon
+        else:
+            self._dc_avg += self._DC_ALPHA * (uv - self._dc_avg)
+        uv_ac = uv - self._dc_avg     # Signal AC — DC offset supprimé
+
+        # ── Initialisation IIR (une seule fois, sur signal déjà centré) ─
         if not self._dc_initialized:
-            # zi_bp absorbe le DC ; notch et n100 démarrent à 0
             self.zi_notch        = lfilter_zi(self.b_notch, self.a_notch) * 0
             self.zi_n100         = lfilter_zi(self.b_n100,  self.a_n100)  * 0
-            self.zi_bp           = lfilter_zi(self.b_bp,    self.a_bp)    * uv
+            self.zi_bp           = lfilter_zi(self.b_bp,    self.a_bp)    * 0
             self._dc_initialized = True
+
+        # ── Étapes 2-4 : Notch 50 Hz + Notch 100 Hz + BP 1-45 Hz ──
         try:
-            x, self.zi_notch = lfilter(self.b_notch, self.a_notch, [uv], zi=self.zi_notch)
-            x, self.zi_n100  = lfilter(self.b_n100,  self.a_n100,  x,    zi=self.zi_n100)
-            x, self.zi_bp    = lfilter(self.b_bp,    self.a_bp,    x,    zi=self.zi_bp)
+            x, self.zi_notch = lfilter(self.b_notch, self.a_notch, [uv_ac], zi=self.zi_notch)
+            x, self.zi_n100  = lfilter(self.b_n100,  self.a_n100,  x,       zi=self.zi_n100)
+            x, self.zi_bp    = lfilter(self.b_bp,    self.a_bp,    x,       zi=self.zi_bp)
             return float(x[0])
         except Exception:
             return 0.0
 
     def reset(self):
         """
-        Réinitialise les états IIR.
+        Réinitialise les états IIR et l'estimateur DC.
         Appeler lors d'une reconnexion TCP (on_filter_reset dans assembly.py).
         """
         self.zi_notch        = lfilter_zi(self.b_notch, self.a_notch) * 0
         self.zi_n100         = lfilter_zi(self.b_n100,  self.a_n100)  * 0
         self.zi_bp           = lfilter_zi(self.b_bp,    self.a_bp)    * 0
         self._dc_initialized = False
+        self._dc_avg         = None    # Réinitialise l'estimateur DC pour la reconnexion
 
 
 # ═══════════════════════════════════════════════════════════════════

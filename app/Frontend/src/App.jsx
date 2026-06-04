@@ -14,10 +14,21 @@ import AdminPanel         from './pages/AdminPanel'
 import TherapistDashboard      from './pages/TherapistDashboard'
 import TherapistPatientDetail  from './pages/TherapistPatientDetail'
 import EEGSelector             from './pages/EEGSelector'
+import EEGPage                 from './pages/EEGPage'
 import EEGLive                 from './pages/EEGLive'
 import EEGFile                 from './pages/EEGFile'
 import ElectrodeGuide          from './pages/ElectrodeGuide'
 import FeedbackPage             from './pages/FeedbackPage'
+import FeedbackSession          from './pages/FeedbackSession'
+import EEGFeedbackMode          from './pages/EEGFeedbackMode'
+import ProtocolDashboard        from './pages/ProtocolDashboard'
+import CalibrationSession       from './pages/CalibrationSession'
+import ProtocolSession          from './pages/ProtocolSession'
+import ProtocolBilan            from './pages/ProtocolBilan'
+import SessionEntry             from './pages/SessionEntry'
+import PatientMediaDashboard    from './pages/PatientMediaDashboard'
+import SessionSetup             from './pages/SessionSetup'
+import NeurofeedbackSession     from './pages/NeurofeedbackSession'
 
 import { useAuthStore } from './stores'
 
@@ -92,12 +103,31 @@ export default function App() {
           <Route path="/assistant"    element={<Assistant />} />
           <Route path="/profile"      element={<Profile />} />
 
-          {/* EEG — sélecteur de mode + pages spécialisées */}
-          <Route path="/eeg"              element={<EEGSelector />} />
-          <Route path="/eeg-live"         element={<EEGLive />} />
-          <Route path="/eeg-file"         element={<EEGFile />} />
+          {/* EEG — tabs live / upload */}
+          <Route path="/eeg"              element={<EEGPage tab="live" />} />
+          <Route path="/eeg/live"         element={<EEGPage tab="live" />} />
+          <Route path="/eeg/upload"       element={<EEGPage tab="upload" />} />
+          {/* Rétro-compatibilité anciens liens */}
+          <Route path="/eeg-live"         element={<EEGPage tab="live" />} />
+          <Route path="/eeg-file"         element={<EEGPage tab="upload" />} />
           <Route path="/electrode-guide"  element={<ElectrodeGuide />} />
           <Route path="/feedback"         element={<FeedbackPage />} />
+          <Route path="/feedback/session" element={<FeedbackSession />} />
+          <Route path="/eeg-feedback"     element={<EEGFeedbackMode />} />
+
+          {/* Protocole 15 séances */}
+          <Route path="/protocol"                   element={<ProtocolDashboard />} />
+          <Route path="/protocol/calibration"       element={<CalibrationSession />} />
+          <Route path="/protocol/entry/:n"          element={<SessionEntry />} />
+          <Route path="/protocol/session/:n"        element={<ProtocolSession />} />
+          <Route path="/protocol/bilan/:n"          element={<ProtocolBilan />} />
+
+          {/* Session setup + neurofeedback stepper */}
+          <Route path="/session/setup"   element={<SessionSetup />} />
+          <Route path="/neurofeedback"   element={<NeurofeedbackSession />} />
+
+          {/* Médias, playlists et recommandations patient */}
+          <Route path="/media-dashboard"            element={<PatientMediaDashboard />} />
 
           {/* Admin only */}
           <Route path="/admin" element={

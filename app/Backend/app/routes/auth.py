@@ -175,7 +175,10 @@ async def register(data: UserCreate, db: AsyncClient = Depends(get_db)):
         if "first_name" in err_msg or "last_name" in err_msg or "PGRST204" in err_msg:
             user_payload.pop("first_name", None)
             user_payload.pop("last_name", None)
-            await db.table("users").insert(user_payload).execute()
+            try:
+                await db.table("users").insert(user_payload).execute()
+            except Exception as e2:
+                raise HTTPException(status_code=500, detail=f"Erreur base de données : {e2}")
         else:
             raise HTTPException(status_code=500, detail=f"Erreur base de données : {err_msg}")
 
@@ -227,13 +230,16 @@ async def login(
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
 
-    await db.table("audit_logs").insert({
-        "id": str(uuid.uuid4()),
-        "user_id": user["id"],
-        "action": "LOGIN",
-        "ip_address": ip,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }).execute()
+    try:
+        await db.table("audit_logs").insert({
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"],
+            "action": "LOGIN",
+            "ip_address": ip,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }).execute()
+    except Exception as e:
+        logger.warning("audit_logs insert failed (table may not exist): %s", e)
 
     return TokenOut(access_token=access_token, refresh_token=refresh_token)
 

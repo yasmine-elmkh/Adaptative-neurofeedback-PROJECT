@@ -50,7 +50,7 @@ async def _build_client() -> AsyncClient:
     return _supabase_client
 
 
-async def get_db() -> AsyncClient:
+async def get_db():
     """
     Dépendance FastAPI — retourne le client Supabase.
     Toutes les routes qui accèdent à la base de données utilisent Depends(get_db).

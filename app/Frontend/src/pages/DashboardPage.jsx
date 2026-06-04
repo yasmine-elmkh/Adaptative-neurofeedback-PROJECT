@@ -3,10 +3,68 @@ import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '../stores'
 import { sessions as sessionsApi, eeg as eegApi, assistant as assistantApi } from '../utils/api'
+import SessionCalendar from '../components/SessionCalendar'
+
+/* ── Widget Protocole (mini-carte dans le dashboard) ── */
+function ProtocolWidget() {
+  const navigate = useNavigate()
+  const [status, setStatus] = useState(null)
+
+  useEffect(() => {
+    const headers = { Authorization: `Bearer ${localStorage.getItem('neurocap_token')}` }
+    // Fetch both protocol/status and sessions/calendar in parallel
+    // to reconcile counts (protocol_sessions vs feedback_sessions tables)
+    Promise.all([
+      fetch('/api/protocol/status', { headers }).then(r => r.json()).catch(() => ({})),
+      fetch('/api/sessions/calendar', { headers }).then(r => r.json()).catch(() => ({})),
+    ]).then(([protocolData, calData]) => {
+      const calCompleted   = calData?.total_completed  ?? 0
+      const protCompleted  = protocolData?.total_completed ?? 0
+      const totalCompleted = Math.max(calCompleted, protCompleted)
+      const nextNum        = calData?.next_session_number ?? protocolData?.next_session_number ?? 1
+      setStatus({
+        ...protocolData,
+        total_completed:     totalCompleted,
+        next_session_number: nextNum,
+        calibration_done:    totalCompleted > 0 || protocolData?.calibration_done,
+      })
+    }).catch(() => {})
+  }, [])
+
+  if (!status) return null
+
+  const n = status.next_session_number
+  const s1Done = status.calibration_done
+
+  return (
+    <div className="card p-4 flex items-center gap-4 border border-nc-accent/20 bg-nc-accent/4">
+      <div className="w-10 h-10 rounded-2xl bg-nc-accent/15 flex items-center justify-center shrink-0">
+        <Brain className="w-5 h-5 text-nc-accent" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-nc-text">
+          Programme NeuroCap
+          {!s1Done && <span className="ml-2 text-[10px] text-amber-400 font-normal">⚠ Calibration requise</span>}
+        </p>
+        <p className="text-xs text-nc-muted truncate">
+          {status.total_completed}/15 séances · Palier {status.current_palier || 'P1'}
+          {n <= 15 && ` · Prochaine : S${n}`}
+          {status.current_phase && ` · Phase ${status.current_phase}`}
+        </p>
+      </div>
+      <button
+        onClick={() => navigate(s1Done ? '/protocol' : '/protocol/calibration')}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl btn-primary text-xs font-semibold shrink-0">
+        {!s1Done ? 'Calibrer →' : 'Voir →'}
+      </button>
+    </div>
+  )
+}
 import {
   LayoutDashboard, TrendingUp, TrendingDown, Activity, Award, ChartBar,
   Play, CalendarDays, Target, Star, Flame, Zap,
-  Trophy, Brain, FileText, MessageSquareText, X, Send, Bot, User, Sparkles,
+  Trophy, Brain, FileText, MessageSquareText, X, Send, Bot, User, Sparkles, Music,
+  Upload, ChevronRight, Radio,
 } from 'lucide-react'
 import {
   LineChart, Line, AreaChart, Area,
@@ -99,9 +157,85 @@ function CustomTooltip({ active, payload, label }) {
   )
 }
 
-// ── Empty state ───────────────────────────────────────────────────────────────
-function EmptyState({ t }) {
+// ── Session Mode Modal ────────────────────────────────────────────────────────
+function SessionModeModal({ onClose }) {
   const navigate = useNavigate()
+
+  const modes = [
+    {
+      key: 'live',
+      icon: Radio,
+      color: 'text-emerald-400',
+      bg: 'bg-emerald-500/15',
+      title: 'EEG en direct',
+      desc: 'Positionner le casque, acquisition temps réel, classification automatique',
+      path: '/eeg/live',
+    },
+    {
+      key: 'offline',
+      icon: Upload,
+      color: 'text-purple-400',
+      bg: 'bg-purple-500/15',
+      title: 'Fichier EEG (offline)',
+      desc: 'Téléverser un fichier CSV/EDF — classification puis neurofeedback',
+      path: '/eeg/upload',
+    },
+    {
+      key: 'manual',
+      icon: Brain,
+      color: 'text-nc-accent',
+      bg: 'bg-nc-accent/15',
+      title: 'Au choix',
+      desc: 'Décrire votre état manuellement, sans casque ni fichier',
+      path: '/feedback',
+    },
+  ]
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)' }}
+      onClick={onClose}
+    >
+      <div
+        className="card max-w-md w-full p-6 space-y-5 animate-fade-in"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-nc-text">Démarrer une séance</h2>
+            <p className="text-xs text-nc-muted mt-0.5">Choisissez votre mode d'acquisition EEG</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-xl text-nc-muted hover:bg-nc-surface2 transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          {modes.map(({ key, icon: Icon, color, bg, title, desc, path }) => (
+            <button
+              key={key}
+              onClick={() => { onClose(); navigate(path) }}
+              className="w-full card p-4 flex items-center gap-4 hover:border-nc-accent/40 transition-all text-start group"
+            >
+              <div className={`w-10 h-10 rounded-2xl ${bg} flex items-center justify-center shrink-0`}>
+                <Icon className={`w-5 h-5 ${color}`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-nc-text">{title}</p>
+                <p className="text-xs text-nc-muted leading-relaxed mt-0.5">{desc}</p>
+              </div>
+              <ChevronRight className="w-4 h-4 text-nc-muted group-hover:text-nc-accent transition-colors shrink-0" />
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Empty state ───────────────────────────────────────────────────────────────
+function EmptyState({ t, onStartSession }) {
   return (
     <div className="flex flex-col items-center justify-center py-24 gap-4 animate-fade-in">
       <div className="w-20 h-20 rounded-full flex items-center justify-center"
@@ -111,13 +245,9 @@ function EmptyState({ t }) {
       <h3 className="text-xl font-semibold text-nc-text">{t('dashboard.no_sessions')}</h3>
       <p className="text-nc-muted text-sm text-center max-w-sm">{t('dashboard.no_sessions_sub')}</p>
       <div className="flex gap-3 mt-2 flex-wrap justify-center">
-        <button className="btn-primary" onClick={() => navigate('/eeg-live')}>
+        <button className="btn-primary" onClick={onStartSession}>
           <Play className="w-4 h-4" />
-          EEG temps réel
-        </button>
-        <button className="btn-ghost" onClick={() => navigate('/eeg-file')}>
-          <FileText className="w-4 h-4" />
-          Analyser un fichier
+          Commencer une séance
         </button>
       </div>
     </div>
@@ -523,15 +653,16 @@ export default function DashboardPage() {
   // ── Completely empty ─────────────────────────────────────────────────────────
   if (!sessionList.length && !eegReports.length) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex items-center gap-2 text-nc-muted text-sm mb-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        <div className="flex items-center gap-2 text-nc-muted text-sm">
           <LayoutDashboard className="w-4 h-4" />
           <span>{t('dashboard.title')}</span>
           <span className="text-nc-text font-semibold ms-1">
             {user?.first_name || user?.email?.split('@')[0] || ''}
           </span>
         </div>
-        <EmptyState t={t} />
+        <SessionCalendar patientId={user?.id} />
+        <EmptyState t={t} onStartSession={() => navigate('/session/setup')} />
       </div>
     )
   }
@@ -574,11 +705,32 @@ export default function DashboardPage() {
           </h1>
           <p className="text-nc-muted mt-1">{t('dashboard.subtitle')}</p>
         </div>
-        <button className="btn-primary shrink-0 self-start sm:self-auto" onClick={() => navigate('/eeg')}>
+        <button className="btn-primary shrink-0 self-start sm:self-auto" onClick={() => navigate('/session/setup')}>
           <Play className="w-4 h-4" />
           {t('dashboard.start_session')}
         </button>
       </div>
+
+      {/* ── Widget Prochain protocole ── */}
+      <ProtocolWidget userId={user?.id} />
+
+      {/* ── Widget Médias & Recommandations ── */}
+      <div
+        onClick={() => navigate('/media-dashboard')}
+        className="card p-4 flex items-center gap-4 border border-purple-500/20 bg-purple-500/4 cursor-pointer hover:border-purple-500/40 transition-colors"
+      >
+        <div className="w-10 h-10 rounded-2xl bg-purple-500/15 flex items-center justify-center shrink-0">
+          <Music className="w-5 h-5 text-purple-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-nc-text">Médias & Recommandations</p>
+          <p className="text-xs text-nc-muted truncate">Playlists, recos EEG adaptatives, analyses offline</p>
+        </div>
+        <span className="text-xs text-purple-400 font-semibold shrink-0">Voir →</span>
+      </div>
+
+      {/* ── Calendrier protocole 15 séances ── */}
+      <SessionCalendar patientId={user?.id} />
 
       {/* ── EEG Recordings (section principale — toujours au top) ── */}
       {eegReports.length > 0 && (

@@ -223,8 +223,11 @@ class EpochExtractor:
         if _extract_feateng is not None:
             _std = float(np.std(filtered))
             if _std > 1e-10:
-                _epoch_z   = (filtered - np.mean(filtered)) / _std
-                ml_features = _extract_feateng(_epoch_z)
+                try:
+                    _epoch_z   = (filtered - np.mean(filtered)) / _std
+                    ml_features = _extract_feateng(_epoch_z)
+                except Exception as _ml_err:
+                    logger.debug(f"[Epochs] feature_eng erreur : {_ml_err}")
 
         # ── Compteurs ────────────────────────────────────────────
         self.n_accepted += 1

@@ -126,24 +126,33 @@ function RapportPhase({ rapport, onRestart }) {
   )
 }
 
+const MEDIA_FILTERS = [
+  { key: null,    label: 'Tous',   icon: '🎯' },
+  { key: 'image', label: 'Images', icon: '🖼️' },
+  { key: 'audio', label: 'Audio',  icon: '🎵' },
+  { key: 'video', label: 'Vidéo',  icon: '🎬' },
+  { key: 'game',  label: 'Jeux',   icon: '🎮' },
+]
+
 // ── Phase : Session principale ───────────────────────────────────────────────
 function SessionPhase({ sessionId, eegState, confidence, features, user, onEnd, onChangeState }) {
   const { recommend, submitFeedback, endSession } = useFeedbackEngine()
-  const [currentMedia, setCurrentMedia] = useState(null)
-  const [loadingMedia, setLoadingMedia] = useState(false)
-  const [showForm,     setShowForm]     = useState(false)
-  const [itemCount,    setItemCount]    = useState(0)
+  const [currentMedia,     setCurrentMedia]     = useState(null)
+  const [loadingMedia,     setLoadingMedia]     = useState(false)
+  const [showForm,         setShowForm]         = useState(false)
+  const [itemCount,        setItemCount]        = useState(0)
+  const [mediaTypeFilter,  setMediaTypeFilter]  = useState(null)
 
   // Charge le premier média au montage
   useEffect(() => {
-    loadRecommendation()
+    loadRecommendation(mediaTypeFilter)
   }, [sessionId])
 
-  const loadRecommendation = async () => {
+  const loadRecommendation = async (typeFilter = mediaTypeFilter) => {
     setLoadingMedia(true)
     setShowForm(false)
     try {
-      const media = await recommend(sessionId, eegState, features || {})
+      const media = await recommend(sessionId, eegState, features || {}, typeFilter)
       setCurrentMedia(media)
       setItemCount(c => c + 1)
     } catch (e) {
@@ -151,6 +160,11 @@ function SessionPhase({ sessionId, eegState, confidence, features, user, onEnd, 
     } finally {
       setLoadingMedia(false)
     }
+  }
+
+  const handleFilterChange = (key) => {
+    setMediaTypeFilter(key)
+    loadRecommendation(key)
   }
 
   const handleFeedback = async (liked, ressenti, noteC, noteS) => {
@@ -168,6 +182,23 @@ function SessionPhase({ sessionId, eegState, confidence, features, user, onEnd, 
 
   return (
     <div style={{ maxWidth: 640, margin: '0 auto', padding: '1rem', fontFamily: "'Outfit',sans-serif" }}>
+
+      {/* Barre de filtre type de média */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+        {MEDIA_FILTERS.map(f => (
+          <button
+            key={String(f.key)}
+            onClick={() => handleFilterChange(f.key)}
+            style={{
+              padding: '6px 12px', borderRadius: 12, fontSize: 12, cursor: 'pointer',
+              background: mediaTypeFilter === f.key ? `${P.accent}22` : 'rgba(255,255,255,0.08)',
+              border: `1.5px solid ${mediaTypeFilter === f.key ? P.accent : 'rgba(255,255,255,0.15)'}`,
+              color: mediaTypeFilter === f.key ? P.accent : P.text2,
+              fontWeight: mediaTypeFilter === f.key ? 700 : 400,
+            }}
+          >{f.icon} {f.label}</button>
+        ))}
+      </div>
 
       {/* En-tête de session */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -201,8 +232,8 @@ function SessionPhase({ sessionId, eegState, confidence, features, user, onEnd, 
       {!loadingMedia && currentMedia && (
         <div style={{ background: P.card, borderRadius: 18, padding: '1rem', border: '1px solid rgba(255,255,255,0.6)', backdropFilter: 'blur(10px)', boxShadow: `0 4px 20px ${P.shadow}` }}>
 
-          {/* Type + nom */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          {/* Badge type */}
+          <div style={{ marginBottom: 12 }}>
             <span style={{ fontSize: 10, fontWeight: 700, color: P.text2, fontFamily: 'monospace', letterSpacing: 1, textTransform: 'uppercase',
               background: 'rgba(184,123,158,0.12)', border: '1px solid rgba(184,123,158,0.2)', borderRadius: 20, padding: '3px 10px' }}>
               {currentMedia.type === 'audio' ? '🎵 Audio'
@@ -210,22 +241,17 @@ function SessionPhase({ sessionId, eegState, confidence, features, user, onEnd, 
                : currentMedia.type === 'video' ? '🎬 Vidéo'
                : '🎮 Jeu'}
             </span>
-            {currentMedia.filename && (
-              <span style={{ fontSize: 11, color: P.text2, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {currentMedia.filename}
-              </span>
-            )}
           </div>
 
           {/* Rendu du média */}
           {currentMedia.type === 'audio' && (
-            <AudioFeedback src={currentMedia.url_cloudinary} filename={currentMedia.filename} />
+            <AudioFeedback src={currentMedia.url_cloudinary || currentMedia.url} />
           )}
           {currentMedia.type === 'image' && (
-            <ImageFeedback src={currentMedia.url_cloudinary} alt={currentMedia.filename} />
+            <ImageFeedback src={currentMedia.url_cloudinary || currentMedia.url} alt="" />
           )}
           {currentMedia.type === 'video' && (
-            <VideoFeedback src={currentMedia.url_cloudinary} title={currentMedia.filename} />
+            <VideoFeedback src={currentMedia.url_cloudinary || currentMedia.url} />
           )}
           {currentMedia.type === 'game' && (
             <GameFeedback game={currentMedia} eegState={eegState} onWin={(r) => console.log('[Game] win', r)} />
@@ -292,35 +318,20 @@ function SessionPhase({ sessionId, eegState, confidence, features, user, onEnd, 
 export default function FeedbackPage() {
   const location = useLocation()
   const navigate = useNavigate()
-  const user = useAuthStore(s => s.user)
 
-  // Peut recevoir un état EEG initial depuis EEGLive via location.state
-  const { eegState: initState, features, confidence } = location.state || {}
+  // Peut recevoir un état EEG initial ou un contexte protocole via location.state
+  const { eegState: initState, features, confidence, fromProtocol, sessionN } = location.state || {}
 
-  const { startSession } = useFeedbackEngine()
-
-  const [phase,       setPhase]       = useState('setup')
-  const [sessionId,   setSessionId]   = useState(null)
-  const [eegState,    setEegState]    = useState(initState || 'neutral')
-  const [rapport,     setRapport]     = useState(null)
-
-  const handleStart = async (selectedState) => {
-    const patientId = user?.id || user?.email || 'anonymous'
-    const sid = await startSession(patientId, 'stress_reduction')
-    setSessionId(sid)
-    setEegState(selectedState)
-    setPhase('session')
-  }
-
-  const handleEnd = (report) => {
-    setRapport(report)
-    setPhase('rapport')
-  }
-
-  const handleRestart = () => {
-    setPhase('setup')
-    setSessionId(null)
-    setRapport(null)
+  const handleStart = (selectedState) => {
+    navigate('/feedback/session', {
+      state: {
+        eeg_state:                 selectedState,
+        classification_confidence:  confidence ?? 0,
+        features_snapshot:          features ?? null,
+        fromProtocol:               fromProtocol ?? false,
+        sessionN:                   sessionN ?? null,
+      },
+    })
   }
 
   return (
@@ -328,7 +339,6 @@ export default function FeedbackPage() {
       className="min-h-screen"
       style={{ background: 'linear-gradient(160deg, #C5D3E8 0%, #D9C9E5 50%, #C5D3E8 100%)', minHeight: '100vh' }}
     >
-      {/* Barre de titre de la section */}
       <div style={{
         borderBottom: '1px solid rgba(255,255,255,0.4)',
         background: 'rgba(247,243,250,0.5)',
@@ -338,15 +348,8 @@ export default function FeedbackPage() {
         alignItems: 'center',
         gap: 12,
       }}>
-        {/* Bouton retour */}
         <button
-          onClick={() => {
-            if (phase === 'setup' || phase === 'rapport') {
-              navigate(-1)
-            } else {
-              if (window.confirm('Terminer la session et revenir en arrière ?')) navigate(-1)
-            }
-          }}
+          onClick={() => navigate(-1)}
           style={{
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '6px 12px', borderRadius: 10, border: '1.5px solid rgba(184,123,158,0.3)',
@@ -363,46 +366,12 @@ export default function FeedbackPage() {
 
         <span style={{ fontSize: 20 }}>🧠</span>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 16, color: P.text }}>Neurofeedback</div>
-          <div style={{ fontSize: 11, color: P.text2 }}>
-            {phase === 'setup'   && 'Configuration de la session'}
-            {phase === 'session' && `Session en cours — état : ${eegState}`}
-            {phase === 'rapport' && 'Rapport de session'}
-          </div>
-        </div>
-
-        {/* Indicateur de phase */}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-          {['setup', 'session', 'rapport'].map((p) => (
-            <div key={p} style={{
-              width: phase === p ? 24 : 8, height: 8, borderRadius: 4,
-              background: phase === p ? P.accent : 'rgba(184,123,158,0.25)',
-              transition: 'all 0.3s',
-            }} />
-          ))}
+          <div style={{ fontWeight: 700, fontSize: 16, color: P.text }}>Neurofeedback au choix</div>
+          <div style={{ fontSize: 11, color: P.text2 }}>Sélectionnez votre état EEG actuel</div>
         </div>
       </div>
 
-      {/* Contenu de phase */}
-      {phase === 'setup' && (
-        <SetupPhase initialState={initState} onStart={handleStart} />
-      )}
-
-      {phase === 'session' && (
-        <SessionPhase
-          sessionId={sessionId}
-          eegState={eegState}
-          confidence={confidence}
-          features={features}
-          user={user}
-          onEnd={handleEnd}
-          onChangeState={setEegState}
-        />
-      )}
-
-      {phase === 'rapport' && (
-        <RapportPhase rapport={rapport} onRestart={handleRestart} />
-      )}
+      <SetupPhase initialState={initState} onStart={handleStart} />
     </div>
   )
 }

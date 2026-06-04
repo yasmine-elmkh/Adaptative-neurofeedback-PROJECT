@@ -322,16 +322,25 @@ class RealTimeProcessor:
 
     def raw_metrics(self) -> dict:
         """Métriques debug du signal filtré, sur composante AC (médiane retirée)."""
-        if self._warmup_samples < self._WARMUP_N:
-            return {"rms_uv": 0.0, "peak_uv": 0.0, "dc_uv": 0.0}
+        # 750 samples = 3 s @ 250 Hz — couvre le transitoire du DCRemover (τ ≈ 3 s)
+        _SETTLED_N = max(self._WARMUP_N, int(self.fs * 3))
+        if self._warmup_samples < _SETTLED_N:
+            return {"rms_uv": 0.0, "peak_uv": 0.0, "dc_uv": 0.0, "settling": True}
         if not self._raw_buf:
-            return {"rms_uv": 0.0, "peak_uv": 0.0, "dc_uv": 0.0}
+            return {"rms_uv": 0.0, "peak_uv": 0.0, "dc_uv": 0.0, "settling": True}
         arr    = np.array(list(self._raw_buf)[-self.fs * 2:])
         arr_ac = arr - np.median(arr)
+        rms_uv  = round(float(np.sqrt(np.mean(arr_ac ** 2))), 2)
+        peak_uv = round(float(np.max(np.abs(arr_ac))),        2)
+        # Valeurs > 500 000 µV → signal aberrant (filtre divergé, hardware KO)
+        # Seuil large pour couvrir les gains AD8232 élevés (×100–×1000)
+        if rms_uv > 500_000:
+            return {"rms_uv": 0.0, "peak_uv": 0.0, "dc_uv": 0.0, "settling": True}
         return {
-            "rms_uv":  round(float(np.sqrt(np.mean(arr_ac ** 2))), 2),
-            "peak_uv": round(float(np.max(np.abs(arr_ac))),        2),
+            "rms_uv":  rms_uv,
+            "peak_uv": peak_uv,
             "dc_uv":   round(float(np.mean(arr)), 1),
+            "settling": False,
         }
 
     # ── Welch interne ────────────────────────────────────────────
@@ -349,7 +358,7 @@ class RealTimeProcessor:
 
             def bp(lo, hi):
                 mask = (fw >= lo) & (fw <= hi)
-                return float(np.trapezoid(pxx[mask], fw[mask])) if mask.any() else 0.0
+                return float(np.trapz(pxx[mask], fw[mask])) if mask.any() else 0.0
 
             abs_b   = {name: bp(lo, hi) for name, (lo, hi) in _BANDS_RT.items()}
             p_emg   = bp(*_EMG_BAND)

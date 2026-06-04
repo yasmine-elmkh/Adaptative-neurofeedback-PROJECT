@@ -1,17 +1,18 @@
 """
 NeuroCap — Routes Sessions
-GET  /api/sessions           → Liste des sessions de l'utilisateur
-POST /api/sessions           → Créer une session
-GET  /api/sessions/{id}      → Détail d'une session
-GET  /api/sessions/{id}/report → Rapport de session
-GET  /api/sessions/{id}/export → Export CSV
+GET  /api/sessions              → Liste des sessions de l'utilisateur
+POST /api/sessions              → Créer une session
+GET  /api/sessions/calendar     → Calendrier 15 séances (protocole)
+GET  /api/sessions/{id}         → Détail d'une session
+GET  /api/sessions/{id}/report  → Rapport de session
+GET  /api/sessions/{id}/export  → Export CSV
 """
 
 import csv
 import io
 import uuid
-from datetime import datetime, timezone
-from typing import List
+from datetime import datetime, date, timezone, timedelta
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -22,6 +23,21 @@ from app.core.security import get_current_user
 from app.schemas import SessionCreate, SessionResponse, SessionReport
 
 router = APIRouter(prefix="/api/sessions", tags=["Sessions"])
+
+
+# ── Constantes protocole ──────────────────────────────────────────────────────
+
+# Délais minimum entre séances selon la phase (en jours)
+_MIN_INTERVAL = {"phase1": 5, "phase2": 2, "phase3": 2}
+
+# Sessions bilan obligatoires
+_BILAN_SESSIONS = {5: "B1", 10: "B2", 15: "B3"}
+
+# Phase par numéro de séance
+def _phase(n: int) -> str:
+    if n <= 3:   return "phase1"
+    if n <= 10:  return "phase2"
+    return "phase3"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -50,26 +66,159 @@ def _default_recommendations(score) -> str:
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
-@router.get("/", response_model=List[SessionResponse])
+@router.get("/calendar")
+async def get_session_calendar(
+    patient_id: Optional[str] = Query(None),
+    current_user=Depends(get_current_user),
+    db: AsyncClient = Depends(get_db),
+):
+    """
+    Retourne le calendrier des 15 séances du protocole pour un patient.
+    Lit en priorité feedback_sessions (nouveau système adaptatif),
+    avec fallback sur sessions (ancienne table) si feedback_sessions est vide.
+    """
+    role = current_user.get("role", "patient")
+    uid = patient_id if patient_id and role in ("therapist", "admin") else current_user["id"]
+
+    existing = []
+
+    # ── Lecture depuis feedback_sessions (nouveau système) ──────────
+    try:
+        resp = await (
+            db.table("feedback_sessions")
+            .select("id,session_number,phase,palier,status,score,started_at,completed_at,created_at")
+            .eq("patient_id", uid)
+            .order("session_number", desc=False)
+            .execute()
+        )
+        raw = resp.data or []
+        # Normaliser les champs pour le frontend (ended_at → completed_at)
+        for s in raw:
+            s.setdefault("bilan_type", _BILAN_SESSIONS.get(s.get("session_number")))
+            s.setdefault("scheduled_date", None)
+            s["ended_at"] = s.get("completed_at")
+            if s.get("session_number") and s.get("phase") is None:
+                s["phase"] = _phase(s["session_number"])
+        existing = raw
+    except Exception:
+        pass
+
+    # ── Fallback : ancienne table sessions (colonnes variables) ─────
+    if not existing:
+        try:
+            resp2 = await (
+                db.table("sessions")
+                .select("id,session_number,phase,palier,status,score,created_at,started_at,ended_at")
+                .eq("user_id", uid)
+                .order("created_at", desc=False)
+                .execute()
+            )
+            raw2 = resp2.data or []
+            for i, s in enumerate(raw2, 1):
+                s.setdefault("session_number", i)
+                s.setdefault("phase", _phase(s["session_number"]))
+                s.setdefault("bilan_type", _BILAN_SESSIONS.get(s["session_number"]))
+                s.setdefault("scheduled_date", None)
+                s.setdefault("palier", 1)
+            existing = raw2
+        except Exception:
+            pass
+
+    # ── Recalculer session_number si absent ──────────────────────────
+    for i, s in enumerate(existing, 1):
+        if not s.get("session_number"):
+            s["session_number"] = i
+        s["bilan_type"] = _BILAN_SESSIONS.get(s["session_number"])
+
+    # ── Construire les 15 cases ───────────────────────────────────────
+    # Only sessions explicitly marked completed count toward progress.
+    completed_nums = {s["session_number"] for s in existing if s.get("status") == "completed"}
+    existing_nums  = {s["session_number"] for s in existing}
+    calendar = list(existing)
+
+    last_completed = None
+    for s in sorted(existing, key=lambda x: x.get("session_number") or 0, reverse=True):
+        if s.get("status") in ("completed",):
+            last_completed = s
+            break
+
+    def _next_date(last_date_str: Optional[str], ph: str) -> Optional[str]:
+        if not last_date_str:
+            return date.today().isoformat()
+        try:
+            last = datetime.fromisoformat(last_date_str.replace("Z", "+00:00")).date()
+        except Exception:
+            return None
+        delta = _MIN_INTERVAL.get(ph, 2)
+        return (last + timedelta(days=delta)).isoformat()
+
+    last_date = (last_completed or {}).get("ended_at") or (last_completed or {}).get("completed_at") or (last_completed or {}).get("created_at")
+    next_num = max(completed_nums, default=0) + 1
+
+    for n in range(next_num, 16):
+        if n in existing_nums:  # already in calendar (any status) — don't duplicate
+            continue
+        ph = _phase(n)
+        next_d = _next_date(last_date, ph) if n == next_num else None
+        calendar.append({
+            "session_number": n,
+            "phase": ph,
+            "status": "upcoming" if n != next_num else "scheduled",
+            "bilan_type": _BILAN_SESSIONS.get(n),
+            "scheduled_date": next_d,
+            "score": None,
+            "palier": None,
+        })
+        if next_d:
+            last_date = next_d
+
+    calendar.sort(key=lambda x: x.get("session_number") or 0)
+
+    return {
+        "sessions": calendar[:16],
+        "total_completed": len(completed_nums),
+        "next_session_number": next_num,
+    }
+
+
+@router.get("", response_model=List[SessionResponse])
 async def list_sessions(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     current_user=Depends(get_current_user),
     db: AsyncClient = Depends(get_db),
 ):
-    """Liste les sessions de l'utilisateur, triées par date décroissante."""
+    """Liste les sessions complétées depuis feedback_sessions (protocole adaptatif)."""
     resp = await (
-        db.table("sessions")
-        .select("*")
-        .eq("user_id", current_user["id"])
+        db.table("feedback_sessions")
+        .select("id,patient_id,session_number,objective,status,score,started_at,completed_at,created_at")
+        .eq("patient_id", current_user["id"])
+        .eq("status", "completed")
         .order("created_at", desc=True)
         .range(offset, offset + limit - 1)
         .execute()
     )
-    return resp.data
+    return [
+        {
+            "id":             s["id"],
+            "user_id":        s.get("patient_id") or "",
+            "session_number": s.get("session_number") or 0,
+            "objective":      s.get("objective") or "concentration",
+            "feedback_mode":  s.get("feedback_mode") or "visual",
+            "status":         "completed",
+            "session_score":  s.get("score"),
+            "avg_tbr":        None,
+            "success_rate":   None,
+            "blocks_history": None,
+            "created_at":     s["created_at"],
+            "started_at":     s.get("started_at"),
+            "completed_at":   s.get("completed_at"),
+        }
+        for s in (resp.data or [])
+    ]
 
 
-@router.post("/", response_model=SessionResponse, status_code=201)
+@router.post("", response_model=SessionResponse, status_code=201)
 async def create_session(
     data: SessionCreate,
     current_user=Depends(get_current_user),

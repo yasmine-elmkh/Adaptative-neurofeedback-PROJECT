@@ -180,7 +180,7 @@ class SessionResponse(BaseModel):
     id: str
     user_id: str
     objective: str
-    feedback_mode: str
+    feedback_mode: str = "visual"
     status: str
     score: Optional[float] = None
     duration_seconds: Optional[int] = None

@@ -103,7 +103,7 @@ def _psd(x, fs=FS, nperseg=256):
 def _band_power(freqs, psd, flo, fhi):
     """Intègre la PSD sur une bande de fréquence donnée (méthode trapézoïdale)."""
     idx = (freqs >= flo) & (freqs <= fhi)
-    return float(np.trapezoid(psd[idx], freqs[idx])) if idx.any() else 0.0
+    return float(np.trapz(psd[idx], freqs[idx])) if idx.any() else 0.0
 
 def _style(ax, title='', xlabel='', ylabel='', grid=True):
     """Applique un style standard aux axes matplotlib."""

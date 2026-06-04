@@ -1,11 +1,65 @@
 import axios from 'axios'
 
 const API = axios.create({ baseURL: '/api' })
+
 API.interceptors.request.use((config) => {
   const token = localStorage.getItem('neurocap_token')
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
+
+let _refreshing = false
+let _refreshQueue = []
+
+API.interceptors.response.use(
+  res => res,
+  async err => {
+    const original = err.config
+    if (err.response?.status !== 401 || original._retry) {
+      return Promise.reject(err)
+    }
+
+    const refreshToken = localStorage.getItem('neurocap_refresh')
+    if (!refreshToken) {
+      localStorage.removeItem('neurocap_token')
+      localStorage.removeItem('neurocap_refresh')
+      window.location.href = '/login'
+      return Promise.reject(err)
+    }
+
+    if (_refreshing) {
+      return new Promise((resolve, reject) => {
+        _refreshQueue.push({ resolve, reject })
+      }).then(token => {
+        original.headers.Authorization = `Bearer ${token}`
+        return API(original)
+      })
+    }
+
+    original._retry = true
+    _refreshing = true
+
+    try {
+      const { data } = await axios.post('/api/auth/refresh', { refresh_token: refreshToken })
+      localStorage.setItem('neurocap_token', data.access_token)
+      localStorage.setItem('neurocap_refresh', data.refresh_token)
+      API.defaults.headers.common.Authorization = `Bearer ${data.access_token}`
+      _refreshQueue.forEach(q => q.resolve(data.access_token))
+      _refreshQueue = []
+      original.headers.Authorization = `Bearer ${data.access_token}`
+      return API(original)
+    } catch {
+      _refreshQueue.forEach(q => q.reject())
+      _refreshQueue = []
+      localStorage.removeItem('neurocap_token')
+      localStorage.removeItem('neurocap_refresh')
+      window.location.href = '/login'
+      return Promise.reject(err)
+    } finally {
+      _refreshing = false
+    }
+  }
+)
 
 export const auth = {
   sendCode: (email) =>
@@ -114,7 +168,79 @@ export const createSessionWS = (sessionId) => {
   return new WebSocket(`/ws/session/${sessionId}?token=${token}`)
 }
 
+export const createFeedbackWS = (sessionId) => {
+  const token = localStorage.getItem('neurocap_token')
+  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+  return new WebSocket(`${proto}://${window.location.host}/api/feedback/ws/${sessionId}?token=${token}`)
+}
+
+// ── Media & Feedback (/api/media/*, /api/feedback/*) ─────────────────────────
+export const media = {
+  list: (mediaType, eegState) =>
+    API.get('/media/list', {
+      params: {
+        ...(mediaType && { media_type: mediaType }),
+        ...(eegState  && { eeg_state: eegState }),
+      },
+    }).then(r => r.data),
+}
+
+export const feedback = {
+  status:        () =>
+    API.get('/feedback/status').then(r => r.data),
+  startSession:  (objective, eegSnapshot) =>
+    API.post('/feedback/sessions', { objective, eeg_snapshot: eegSnapshot }).then(r => r.data),
+  recommend:     (sessionId, eegState, mediaType, features, confidence) =>
+    API.post('/feedback/recommend', {
+      session_id:  sessionId,
+      eeg_state:   eegState,
+      media_type:  mediaType   || undefined,
+      features:    features    || undefined,
+      confidence:  confidence  != null ? confidence : undefined,
+    }).then(r => r.data),
+  submit:        (payload) =>
+    API.post('/feedback/submit', payload).then(r => r.data),
+  skip:          (sessionId, mediaId) =>
+    API.post('/feedback/skip', { session_id: sessionId, media_id: mediaId }).then(r => r.data),
+  sam:           (sessionId, score) =>
+    API.post('/feedback/sam', { session_id: sessionId, score }).then(r => r.data),
+  end:           (payload) =>
+    API.post('/feedback/end', payload).then(r => r.data),
+  guide:         (sessionId, mediaId, eegState, features) =>
+    API.post('/feedback/media-guide', {
+      session_id: sessionId,
+      media_id:   mediaId,
+      eeg_state:  eegState,
+      features:   features || undefined,
+    }).then(r => r.data),
+}
+
+// ── Calendrier sessions (/api/sessions/calendar) ─────────────────────────────
+export const calendar = {
+  get: (patientId) =>
+    API.get('/sessions/calendar', { params: patientId ? { patient_id: patientId } : {} }).then(r => r.data),
+}
+
 // ── EEG Temps Réel (/api/eeg/*) ──────────────────────────────────────────────
+// ── Protocole (/api/protocol/*) ──────────────────────────────────────────────
+export const protocol = {
+  status:           ()                  => API.get('/protocol/status').then(r => r.data),
+  calendar:         ()                  => API.get('/protocol/calendar').then(r => r.data),
+  progress:         ()                  => API.get('/protocol/progress').then(r => r.data),
+  therapistProgress: ()                 => API.get('/protocol/progress/therapist').then(r => r.data),
+  startSession:     (n)                 => API.post(`/protocol/sessions/${n}/start`).then(r => r.data),
+  sessionConfig:    (n)                 => API.get(`/protocol/sessions/${n}/config`).then(r => r.data),
+  blocEnd:          (n, body)           => API.post(`/protocol/sessions/${n}/bloc-end`, body).then(r => r.data),
+  completeSession:  (n, body)           => API.put(`/protocol/sessions/${n}/complete`, body).then(r => r.data),
+  bilan:            (n)                 => API.get(`/protocol/bilan/${n}`).then(r => r.data),
+  profile:          ()                  => API.get('/protocol/profile').then(r => r.data),
+  calibrationComplete: (body)           => API.post('/protocol/calibration/complete', body).then(r => r.data),
+  updatePalier:     (body)              => API.put('/protocol/palier', body).then(r => r.data),
+  dailyThreshold:   (body)             => API.post('/protocol/daily-threshold', body).then(r => r.data),
+  earlyStop:        (reason, notes)    => API.post('/protocol/early-stop', { reason, notes }).then(r => r.data),
+  scheduleFollowup: (plannedDate)      => API.post('/protocol/followup-schedule', { planned_date: plannedDate || undefined }).then(r => r.data),
+}
+
 export const eeg = {
   status:          () => API.get('/eeg/status').then(r => r.data),
   analyze:         () => API.get('/eeg/analyze').then(r => r.data),
@@ -135,4 +261,55 @@ export const eeg = {
   sendReport:       (payload)      => API.post('/eeg/report', payload).then(r => r.data),
   myReports:        (limit = 100)  => API.get('/eeg/my-reports', { params: { limit } }).then(r => r.data),
   finetuningStatus: ()             => API.get('/eeg/finetuning/status').then(r => r.data),
+}
+
+// ── Recommandations média (/api/sessions/*, /api/patients/*, /api/eeg-reports/*) ──
+export const recommendations = {
+  // A. Reco live pendant une session EEG
+  sessionMediaReco: (sessionId, blockNumber, forceCalming = false) =>
+    API.post(`/sessions/${sessionId}/media-recommendation`, {
+      current_block_number: blockNumber,
+      force_calming: forceCalming,
+    }).then(r => r.data),
+
+  // B. Feedback post-session (liste d'interactions média)
+  sessionMediaFeedback: (sessionId, items) =>
+    API.post(`/sessions/${sessionId}/media-feedback`, { items }).then(r => r.data),
+
+  // C. Générer recos offline depuis un rapport EEG
+  generateOfflineReco: (reportId) =>
+    API.post(`/eeg-reports/${reportId}/generate-media-recommendations`).then(r => r.data),
+
+  // D. Recalculer scores après fine-tuning
+  updateScoringAfterFinetune: (jobId) =>
+    API.post(`/finetuning/${jobId}/update-media-scoring`).then(r => r.data),
+
+  // E. Dashboard patient unifié (sessions + profil + recos + playlists + rapports)
+  patientDashboard: (patientId) =>
+    API.get(`/patients/${patientId}/dashboard`).then(r => r.data),
+
+  // F. Playlists patient
+  createPlaylist: (patientId, name, description = '') =>
+    API.post(`/patients/${patientId}/playlists`, { name, description }).then(r => r.data),
+  listPlaylists: (patientId) =>
+    API.get(`/patients/${patientId}/playlists`).then(r => r.data),
+
+  // G. Offline recommendations par rapport EEG
+  offlineRecs: (patientId, reportId) =>
+    API.get(`/patients/${patientId}/offline-recommendations/${reportId}`).then(r => r.data),
+  offlineRecFeedback: (patientId, recId, liked) =>
+    API.patch(`/patients/${patientId}/offline-recommendations/${recId}/feedback`, {
+      recommendation_id: recId, liked,
+    }).then(r => r.data),
+}
+
+// ── Playlist thérapeutique thérapeute ────────────────────────────────────────
+// (complète l'objet therapist)
+export const therapistExtended = {
+  createTherapeuticPlaylist: (patientId, name, description, recommendedObjective) =>
+    API.post(`/therapist/patients/${patientId}/therapeutic-playlist`, {
+      name,
+      description,
+      recommended_objective: recommendedObjective,
+    }).then(r => r.data),
 }

@@ -32,6 +32,15 @@ from app.schemas import (
     TherapistRecommendationCreate, TherapistRecommendationOut,
     PalierAdjust, SessionResponse, EEGProfileOut,
 )
+from app.schemas.media_reco import TherapeuticPlaylistRequest, PlaylistWithMedia
+from app.services.media_recommendation import (
+    get_profile_categories,
+    score_media,
+    get_liked_media_ids,
+    PALIER_MAX_DURATION,
+    CALMING_CATEGORIES,
+)
+from app.services.session_media_bridge import get_patient_eeg_profile
 
 router = APIRouter(prefix="/api/therapist", tags=["Thérapeute"])
 
@@ -423,4 +432,134 @@ async def export_patient_csv(
         iter([output.getvalue()]),
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=neurocap_{name}.csv"},
+    )
+
+
+# ── Playlist thérapeutique ─────────────────────────────────────────────────────
+
+@router.post(
+    "/patients/{patient_id}/therapeutic-playlist",
+    response_model=PlaylistWithMedia,
+    status_code=201,
+)
+async def create_therapeutic_playlist(
+    patient_id: str,
+    body: TherapeuticPlaylistRequest,
+    therapist=Depends(get_therapist_user),
+    db: AsyncClient = Depends(get_db),
+):
+    """
+    Crée automatiquement une playlist thérapeutique pour un patient.
+
+    Logique :
+    1. Lire therapist_recommendations (objectif, rythme) pour ce patient
+    2. Lire eeg_profiles (profile_type, palier)
+    3. Filtrer les médias alignés avec l'objectif, le profil et les préférences
+    4. Prioriser les médias bien notés (liked = True ou sam_score >= 4)
+    5. Créer la playlist + insérer les items dans playlist_media
+    """
+    patient = await _check_assignment(patient_id, therapist, db)
+
+    # Récupérer la dernière recommandation du thérapeute
+    rec_resp = await (
+        db.table("therapist_recommendations")
+        .select("recommended_objective,weekly_target,notes")
+        .eq("patient_id", patient_id)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    therapist_rec = rec_resp.data[0] if rec_resp.data else {}
+    objective = body.recommended_objective or therapist_rec.get("recommended_objective") or "relaxation"
+
+    # Profil EEG
+    profile_type, palier = await get_patient_eeg_profile(patient_id, db)
+
+    # Médias bien notés par le patient
+    liked_ids = await get_liked_media_ids(patient_id, db)
+
+    # Charger tous les médias
+    medias_resp = await db.table("medias").select("*").execute()
+    all_medias: list[dict] = medias_resp.data or []
+
+    # Mapper objectif thérapeutique → catégories cibles
+    OBJECTIVE_CATEGORIES = {
+        "concentration": ["focus", "rhythmic", "energetic", "stimulating"],
+        "relaxation":    ["nature", "binaural", "meditation", "calming", "ambient"],
+        "stress":        ["nature", "binaural", "calming", "meditation", "relaxation"],
+    }
+    target_cats = OBJECTIVE_CATEGORIES.get(objective, get_profile_categories(profile_type))
+
+    # Déterminer l'état EEG cible selon l'objectif
+    eeg_state_for_obj = {
+        "concentration": "focus",
+        "relaxation":    "neutral",
+        "stress":        "stress",
+    }.get(objective, "neutral")
+
+    # Filtrer et scorer les médias
+    pool = [
+        m for m in all_medias
+        if (m.get("category") or "").lower() in target_cats
+    ]
+    if not pool:
+        pool = all_medias
+
+    scored = [
+        (m, score_media(m, profile_type, eeg_state_for_obj, palier, liked_ids))
+        for m in pool
+    ]
+    # Trier : likés en tête, puis par score
+    scored.sort(key=lambda x: (str(x[0].get("id", "")) in liked_ids, x[1]), reverse=True)
+
+    # Sélectionner max 20 médias pour la playlist
+    playlist_items = [m for m, s in scored[:20] if s > 0]
+
+    now = datetime.now(timezone.utc).isoformat()
+    playlist_id = str(uuid.uuid4())
+
+    # Créer la playlist
+    pl = {
+        "id":               playlist_id,
+        "user_id":          patient_id,
+        "name":             body.name,
+        "description":      body.description or f"Playlist thérapeutique — objectif {objective}",
+        "created_by_role":  "therapist",
+        "is_therapeutic":   True,
+        "created_at":       now,
+        "updated_at":       now,
+    }
+    pl_resp = await db.table("playlists").insert(pl).execute()
+
+    # Insérer les médias dans playlist_media (alternance focus/relax si possible)
+    focus_items  = [m for m in playlist_items if (m.get("category") or "").lower() in ("focus", "rhythmic", "energetic")]
+    relax_items  = [m for m in playlist_items if (m.get("category") or "").lower() in CALMING_CATEGORIES]
+    other_items  = [m for m in playlist_items if m not in focus_items and m not in relax_items]
+
+    # Alterner focus / relax / autres
+    ordered: list[dict] = []
+    fi, ri, oi = 0, 0, 0
+    while fi < len(focus_items) or ri < len(relax_items) or oi < len(other_items):
+        if fi < len(focus_items):
+            ordered.append(focus_items[fi]); fi += 1
+        if ri < len(relax_items):
+            ordered.append(relax_items[ri]); ri += 1
+        if oi < len(other_items):
+            ordered.append(other_items[oi]); oi += 1
+
+    for pos, media in enumerate(ordered[:20], start=1):
+        try:
+            await db.table("playlist_media").insert({
+                "playlist_id": playlist_id,
+                "media_id":    str(media["id"]),
+                "position":    pos,
+                "added_at":    now,
+            }).execute()
+        except Exception as exc:
+            import logging as _log
+            _log.getLogger(__name__).warning("insert playlist_media: %s", exc)
+
+    return PlaylistWithMedia(
+        **(pl_resp.data[0] if pl_resp.data else pl),
+        items=ordered[:20],
     )

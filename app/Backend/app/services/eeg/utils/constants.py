@@ -6,6 +6,11 @@ Constantes NeuroCap EEG
 # Fréquence d'échantillonnage
 FS = 250  # Hz
 
+# Gain matériel AD8232 (RG = 470 Ω → gain ≈ 1 + 470kΩ/470Ω ≈ 1000)
+# Utilisé uniquement pour normaliser les valeurs affichées côté WebSocket
+# vers des µV physiologiques scalp. Le traitement DSP interne reste en µV amplifiés.
+HARDWARE_GAIN = 1000
+
 # Bandes de fréquence EEG (Hz)
 BANDS = {
     'delta':    (0.5, 4),

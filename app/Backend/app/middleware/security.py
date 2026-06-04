@@ -252,7 +252,7 @@ def add_security_middleware(app) -> None:
     @app.middleware("http")
     async def rate_limit_middleware(request: Request, call_next):
         # Ignorer les endpoints de santé et les requêtes preflight OPTIONS
-        if request.url.path == "/health" or request.method == "OPTIONS":
+        if request.url.path in ("/health", "/api/health") or request.method == "OPTIONS":
             return await call_next(request)
 
         ip = request.client.host if request.client else "unknown"

@@ -164,7 +164,7 @@ export default function Layout() {
           {/* ── Logo ── */}
           <NavLink to="/dashboard" className="flex items-center gap-2.5 shrink-0 me-4">
             <img
-              src="/NeuroCap_Logo.png"
+              src="/NeuroCap_logo.png"
               alt="NeuroCap"
               className="w-8 h-8 rounded-xl object-contain"
             />
@@ -250,7 +250,7 @@ export default function Layout() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-2.5 mb-6 px-2">
-              <img src="/NeuroCap_Logo.png" alt="NeuroCap" className="w-7 h-7 rounded-lg object-contain" />
+              <img src="/NeuroCap_logo.png" alt="NeuroCap" className="w-7 h-7 rounded-lg object-contain" />
               <span className="font-bold text-nc-text">NeuroCap</span>
             </div>
 
@@ -295,7 +295,7 @@ export default function Layout() {
           {/* Top row */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2.5">
-              <img src="/NeuroCap_Logo.png" alt="NeuroCap" className="w-7 h-7 rounded-lg object-contain" />
+              <img src="/NeuroCap_logo.png" alt="NeuroCap" className="w-7 h-7 rounded-lg object-contain" />
               <span className="font-bold text-sm text-nc-text">NeuroCap</span>
               <span className="text-xs text-nc-muted">— Easy Medical Device</span>
             </div>
@@ -312,7 +312,7 @@ export default function Layout() {
             <div className="flex items-center gap-3 text-[10px] text-nc-muted/50">
               <span>AD8232 + ESP32</span>
               <span className="w-1 h-1 rounded-full bg-nc-muted/30" />
-              <span>Fp2 · 250 Hz</span>
+              <span>250 Hz</span>
               <span className="w-1 h-1 rounded-full bg-nc-muted/30" />
               <span>CDC §2.5</span>
               <span className="w-1 h-1 rounded-full bg-nc-muted/30" />

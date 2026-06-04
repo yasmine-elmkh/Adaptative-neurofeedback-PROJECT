@@ -1,23 +1,14 @@
 import { useRef, useCallback, useEffect, useState } from 'react'
 
 const WS_URL = '/ws/eeg'
+const BACKOFF_MIN = 1_000
+const BACKOFF_MAX = 30_000
 
-/**
- * useEEGWebSocket — connexion au WebSocket EEG temps réel.
- *
- * Retourne :
- *   connected    — état de la connexion
- *   eegFrame     — dernier sample EEG reçu (type:"eeg")
- *   epochFrame   — dernière époque acceptée (type:"epoch")
- *   initFrame    — message d'init (esp32_connected, wifi_configured…)
- *   esp32Status  — dernier message esp32_status
- *   send(cmd)    — envoyer une commande (FINALISE_BASELINE, START_REC…)
- *   reconnect()  — forcer la reconnexion
- */
 export function useEEGWebSocket() {
   const wsRef      = useRef(null)
   const timerRef   = useRef(null)
   const mountedRef = useRef(true)
+  const backoffRef = useRef(BACKOFF_MIN)
 
   const [connected,      setConnected]      = useState(false)
   const [eegFrame,       setEegFrame]       = useState(null)
@@ -25,6 +16,14 @@ export function useEEGWebSocket() {
   const [rejectedFrame,  setRejectedFrame]  = useState(null)
   const [initFrame,      setInitFrame]      = useState(null)
   const [esp32Status,    setEsp32Status]    = useState(null)
+
+  const scheduleReconnect = useCallback(() => {
+    if (!mountedRef.current) return
+    timerRef.current = setTimeout(() => {
+      backoffRef.current = Math.min(backoffRef.current * 2, BACKOFF_MAX)
+      connect()
+    }, backoffRef.current)
+  }, [])
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return
@@ -39,6 +38,7 @@ export function useEEGWebSocket() {
 
       ws.onopen = () => {
         if (!mountedRef.current) { ws.close(); return }
+        backoffRef.current = BACKOFF_MIN
         setConnected(true)
       }
 
@@ -59,20 +59,14 @@ export function useEEGWebSocket() {
 
       ws.onclose = () => {
         setConnected(false)
-        // Reconnexion automatique toutes les 3s
-        if (mountedRef.current) {
-          timerRef.current = setTimeout(connect, 3000)
-        }
+        scheduleReconnect()
       }
 
       ws.onerror = () => { /* géré par onclose */ }
-    } catch (e) {
-      console.error('[WS/EEG] Connexion échouée:', e)
-      if (mountedRef.current) {
-        timerRef.current = setTimeout(connect, 3000)
-      }
+    } catch {
+      scheduleReconnect()
     }
-  }, [])
+  }, [scheduleReconnect])
 
   const send = useCallback((command, extra = {}) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -81,6 +75,8 @@ export function useEEGWebSocket() {
   }, [])
 
   const reconnect = useCallback(() => {
+    clearTimeout(timerRef.current)
+    backoffRef.current = BACKOFF_MIN
     if (wsRef.current) {
       wsRef.current.close()
       wsRef.current = null
@@ -88,7 +84,6 @@ export function useEEGWebSocket() {
     connect()
   }, [connect])
 
-  // Connexion initiale
   useEffect(() => {
     mountedRef.current = true
     connect()

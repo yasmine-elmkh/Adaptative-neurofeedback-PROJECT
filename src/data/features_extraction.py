@@ -136,7 +136,7 @@ def _band_power(freqs, psd, flo, fhi):
     idx = (freqs >= flo) & (freqs <= fhi)
     if not idx.any():
         return 0.0
-    return float(np.trapezoid(psd[idx], freqs[idx]))
+    return float(np.trapz(psd[idx], freqs[idx]))
 
 
 def get_feature_vector(epoch):

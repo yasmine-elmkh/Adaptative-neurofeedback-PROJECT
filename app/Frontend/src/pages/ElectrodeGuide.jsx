@@ -119,7 +119,7 @@ function HeadbandDiagram() {
 }
 
 /* ── Page principale ─────────────────────────────────────────────────────────── */
-export default function ElectrodeGuide() {
+export default function ElectrodeGuide({ onComplete, onSkip } = {}) {
   const navigate  = useNavigate()
   const [consent, setConsent] = useState(false)
   const [checked, setChecked] = useState({
@@ -323,17 +323,22 @@ export default function ElectrodeGuide() {
 
       {/* ── Bouton accès EEG Live ── */}
       <div className="flex justify-end gap-3">
-        <button onClick={() => navigate('/dashboard')}
-          className="btn-ghost px-6 py-3 rounded-xl text-sm">
-          Retour au tableau de bord
-        </button>
+        {onSkip ? (
+          <button onClick={onSkip} className="btn-ghost px-6 py-3 rounded-xl text-sm">
+            Passer →
+          </button>
+        ) : (
+          <button onClick={() => navigate('/dashboard')} className="btn-ghost px-6 py-3 rounded-xl text-sm">
+            Retour au tableau de bord
+          </button>
+        )}
         <button
-          onClick={() => navigate('/eeg-live')}
+          onClick={() => onComplete ? onComplete() : navigate('/eeg-live')}
           disabled={!consent || !allChecked}
           className="btn-primary flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold
                      disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          J'ai compris — démarrer le Live EEG
+          J'ai compris — continuer
           <ChevronRight className="w-4 h-4" />
         </button>
       </div>

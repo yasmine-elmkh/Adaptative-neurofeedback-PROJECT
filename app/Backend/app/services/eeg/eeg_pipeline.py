@@ -28,9 +28,11 @@ logger = logging.getLogger("NeuroCap.EEG")
 # ─── Imports conditionnels ────────────────────────────────────────────────────
 try:
     from app.services.eeg.dsp import RealTimeProcessor, ElectrodeMonitor
+    from app.services.eeg.utils.constants import HARDWARE_GAIN
     _DSP_OK = True
 except ImportError:
     _DSP_OK = False
+    HARDWARE_GAIN = 1000
     logger.warning("[EEG] Module DSP non disponible — mode simulation")
 
 try:
@@ -202,7 +204,7 @@ class EEGPipeline:
         logger.info(f"[DSP] Déconnexion — {drained} samples purgés")
 
         try:
-            self.rt.epocher.pipeline.filters._dc_initialized = False
+            self.rt.reset()
         except Exception:
             pass
 
@@ -215,7 +217,7 @@ class EEGPipeline:
 
     def _on_filter_reset(self):
         try:
-            self.rt.epocher.pipeline.filters._dc_initialized = False
+            self.rt.reset()
         except Exception:
             pass
 
@@ -306,19 +308,34 @@ class EEGPipeline:
                 elec_ok     = self.electrode_mon.electrode_ok
                 elec_status = self.electrode_mon.status_detail
 
+                # Normalisation hardware : convertit la sortie AD8232 amplifiée
+                # en µV scalp physiologiques avant tout traitement DSP.
+                # Tout le pipeline (filtres, CQE, détecteur artefacts, epocher)
+                # reçoit des valeurs en µV scalp (10-150 µV), ce qui correspond
+                # aux seuils définis dans artifacts.py.
+                uv_norm = s["uv"] / HARDWARE_GAIN
+
                 # Détection contact par variance (fallback quand LO bypassed)
+                # Plage valide en µV scalp : 0.5 < variance < 250 000 µV²
+                #   Trop faible (< 0.5)      → électrode morte / signal plat
+                #   Trop élevée (> 250 000)  → électrode flottante (RMS > ~500 µV)
                 _contact_ok = True
                 if len(self._contact_buf) >= 250:
                     import numpy as np
-                    _contact_ok = float(np.var(self._contact_buf)) > 0.5
+                    _var = float(np.var(self._contact_buf))
+                    _contact_ok = 0.5 < _var < 250_000
                 if s.get("lo_plus", 1) == 0 and s.get("lo_minus", 1) == 0:
                     elec_ok = _contact_ok
 
-                flt, epoch_result = self.rt.push(
-                    s["uv"],
-                    electrode_ok = elec_ok,
-                    lo_score     = self.electrode_mon.lo_score if elec_ok else 0,
-                )
+                try:
+                    flt, epoch_result = self.rt.push(
+                        uv_norm,
+                        electrode_ok = elec_ok,
+                        lo_score     = self.electrode_mon.lo_score if elec_ok else 0,
+                    )
+                except Exception as _push_err:
+                    logger.warning(f"[EEG] rt.push erreur : {_push_err}")
+                    continue
 
                 self._contact_buf.append(float(flt))
                 if len(self._contact_buf) > 250:
@@ -327,19 +344,37 @@ class EEGPipeline:
                 m   = self.rt.metrics()
                 _rm = self.rt.raw_metrics()
 
+                # Pendant le warm-up IIR (500 premiers samples = 2 s),
+                # le filtre n'a pas convergé → on envoie 0 pour afficher
+                # une ligne plate plutôt que le transitoire saturé.
+                _is_settling = self.rt._warmup_samples <= self.rt._WARMUP_N
+                _flt_display = 0.0 if _is_settling else round(float(flt), 3)
+
+                # Diagnostic amplitude — log toutes les 250 itérations (~1 s)
+                if _display_counter % 250 == 0 and not _is_settling:
+                    logger.info(
+                        f"[EEG] uv_raw={s['uv']:.1f} µV  "
+                        f"uv_scalp={uv_norm:.2f} µV  "
+                        f"flt={flt:.2f} µV  "
+                        f"elec_ok={elec_ok}  "
+                        f"warmup={self.rt._warmup_samples}"
+                    )
+
                 payload = {
-                    "type":         "eeg",
-                    "ts":           s["ts"],
-                    "uv":           s["uv"],
-                    "filtered":     round(float(flt), 3),
-                    "electrode_ok": elec_ok,
+                    "type":          "eeg",
+                    "ts":            s["ts"],
+                    # Signal en µV scalp physiologiques (normalisé à l'entrée du pipeline).
+                    # Zéro pendant le warm-up, valeur réelle après convergence.
+                    "filtered":      _flt_display,
+                    "electrode_ok":  elec_ok,
                     "fp2_connected": elec_status.get("fp2_connected", True),
                     "m2_connected":  elec_status.get("m2_connected", True),
-                    "batt_V":       s.get("batt_V", 0),
+                    "batt_V":        s.get("batt_V", 0),
                     "raw_metrics": {
-                        "rms_raw": _rm.get("rms_uv",  0.0),
-                        "peak":    _rm.get("peak_uv", 0.0),
-                        "dc_uv":   _rm.get("dc_uv",   0.0),
+                        "rms_raw":  _rm.get("rms_uv",   0.0),
+                        "peak":     _rm.get("peak_uv",  0.0),
+                        "dc_uv":    _rm.get("dc_uv",    0.0),
+                        "settling": _rm.get("settling", True),
                     },
                     "cal_progress": self.rt.epocher.pipeline.cal_progress,
                 }

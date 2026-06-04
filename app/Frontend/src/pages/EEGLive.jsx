@@ -3,13 +3,16 @@ import { useNavigate } from 'react-router-dom'
 import {
   Wifi, WifiOff, Activity, Download, Pause, Play, Square, Circle,
   CheckCircle2, Radio, RefreshCw, ChevronRight, Brain, BarChart3,
-  List, FileText, ArrowLeft, Send,
+  List, FileText, ArrowLeft, Send, Sparkles, X,
 } from 'lucide-react'
-import SignalCanvas      from '../components/eeg/SignalCanvas'
-import BandBars          from '../components/eeg/BandBars'
+import SignalCanvas        from '../components/eeg/SignalCanvas'
+import BandBars            from '../components/eeg/BandBars'
+import FeaturesPanel       from '../components/eeg/FeaturesPanel'
+import CalibrationOverlay  from '../components/eeg/CalibrationOverlay'
+import WifiSetupCard       from '../components/eeg/WifiSetupCard'
 import { useEEGWebSocket } from '../hooks/useEEGWebSocket'
 import { useRecording }    from '../hooks/useRecording'
-import { eeg as eegApi }   from '../utils/api'
+import { eeg as eegApi } from '../utils/api'
 
 /* ── Métadonnées états cognitifs ──────────────────────────────────────────────── */
 const STATE_META = {
@@ -98,151 +101,93 @@ function MLClassifierCard({ prediction }) {
   )
 }
 
-/* ── Panneau WiFi (inline collapsible) ───────────────────────────────────────── */
-function WifiSetupCard({ status, onClose }) {
-  const [networks, setNetworks] = useState([])
-  const [ssid,     setSsid]     = useState('')
-  const [password, setPassword] = useState('')
-  const [phase,    setPhase]    = useState('idle') // idle | confirming | waiting | done | error
-  const [errMsg,   setErrMsg]   = useState('')
-  const [pending,  setPending]  = useState('')
-  const pollRef = useRef(null)
+/* ── Popup "Passer au neurofeedback" ─────────────────────────────────────────── */
+function FeedbackReadyPopup({ prediction, features, stableSeconds, onStart, onDismiss }) {
+  const state    = prediction?.uncertain ? 'uncertain' : (prediction?.state ?? 'neutral')
+  const conf     = Math.round((prediction?.confidence ?? 0) * 100)
 
-  useEffect(() => {
-    eegApi.wifiNetworks().then(d => setNetworks(d.networks || [])).catch(() => {})
-  }, [])
-
-  function startPolling() {
-    clearInterval(pollRef.current)
-    let tries = 0
-    pollRef.current = setInterval(async () => {
-      tries++
-      if (tries > 90) { clearInterval(pollRef.current); setPhase('error'); setErrMsg('Timeout 90s — vérifiez SSID et mot de passe'); return }
-      try {
-        const s = await eegApi.status()
-        if (s.wifi_result?.success)          { clearInterval(pollRef.current); setPhase('done') }
-        else if (s.wifi_result?.success === false) { clearInterval(pollRef.current); setPhase('error'); setErrMsg(`Échec : ${s.wifi_result.reason ?? 'réseau introuvable'}`) }
-      } catch {}
-    }, 1000)
+  const LABEL = {
+    concentration: { text: 'CONCENTRATION', color: 'text-emerald-400', bg: 'bg-emerald-500/15', border: 'border-emerald-500/30' },
+    stress:        { text: 'STRESS',         color: 'text-red-400',     bg: 'bg-red-500/15',     border: 'border-red-500/30'     },
+    neutral:       { text: 'NEUTRE',         color: 'text-nc-muted',    bg: 'bg-nc-surface2',    border: 'border-nc-border'      },
+    uncertain:     { text: 'INCERTAIN',      color: 'text-yellow-400',  bg: 'bg-yellow-500/15',  border: 'border-yellow-500/30'  },
   }
-
-  async function doConnect() {
-    setPhase('waiting'); setErrMsg('')
-    try {
-      if (networks.includes(pending) && !password) await eegApi.wifiUseSaved(pending)
-      else await eegApi.wifiConfigure(pending || ssid, password)
-      startPolling()
-    } catch (e) { setPhase('error'); setErrMsg(e?.response?.data?.error || e.message) }
-  }
-
-  function submitNew(e) {
-    e.preventDefault()
-    if (!ssid.trim()) return
-    setPending(ssid.trim())
-    setPhase('confirming')
-  }
-
-  useEffect(() => () => clearInterval(pollRef.current), [])
-
-  if (phase === 'done') return (
-    <div className="card p-8 text-center space-y-4">
-      <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto" />
-      <p className="font-semibold text-nc-text">WiFi configuré !</p>
-      <p className="text-xs text-nc-muted">ESP32 connecté. Reconnectez votre PC à votre réseau WiFi domestique si nécessaire.</p>
-      <button onClick={onClose} className="btn-primary px-6 py-2.5 rounded-xl text-sm font-semibold">
-        Voir le signal EEG →
-      </button>
-    </div>
-  )
-
-  if (phase === 'confirming') return (
-    <div className="card p-6 space-y-4">
-      <p className="text-sm font-semibold text-nc-text">Confirmer la connexion</p>
-      <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-sm text-nc-text">
-        Réseau : <strong>{pending}</strong>
-      </div>
-      <div className="space-y-1">
-        <label className="text-xs text-nc-muted">Mot de passe {networks.includes(pending) ? '(optionnel si mémorisé)' : ''}</label>
-        <input type="password" className="input w-full" value={password}
-          onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
-      </div>
-      <div className="flex gap-3">
-        <button onClick={doConnect} className="btn-primary flex-1 py-2.5 rounded-xl text-sm font-semibold">Confirmer</button>
-        <button onClick={() => setPhase('idle')} className="btn-ghost flex-1 py-2.5 rounded-xl text-sm">Annuler</button>
-      </div>
-    </div>
-  )
-
-  if (phase === 'waiting') return (
-    <div className="card p-8 text-center space-y-4">
-      <div className="w-10 h-10 border-2 border-nc-accent/30 border-t-nc-accent rounded-full animate-spin mx-auto" />
-      <p className="text-sm text-nc-text">Connexion de l'ESP32 à <strong>{pending}</strong>…</p>
-      <p className="text-xs text-nc-muted">Attente de confirmation (jusqu'à 90 s)</p>
-    </div>
-  )
+  const lbl = LABEL[state] ?? LABEL.neutral
 
   return (
-    <div className="card p-6 space-y-5">
-      <div className="flex items-center gap-2">
-        <Wifi className="w-5 h-5 text-nc-accent" />
-        <h3 className="font-semibold text-nc-text text-sm">Configuration WiFi ESP32</h3>
-      </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+         style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)' }}>
+      <div className="card max-w-md w-full p-6 space-y-5 animate-fade-in">
 
-      <div className="p-3 rounded-xl bg-blue-500/8 border border-blue-500/20 text-xs text-blue-300 leading-relaxed">
-        <strong>Procédure :</strong> Connectez d'abord votre PC au hotspot{' '}
-        <code className="bg-black/30 px-1 rounded">NeuroCap-XXXX</code> affiché sur l'ESP32,
-        puis entrez les identifiants de votre réseau WiFi domestique (2,4 GHz uniquement).
-      </div>
-
-      {errMsg && (
-        <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-300">{errMsg}</div>
-      )}
-      {status?.esp32_ap_detected && (
-        <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">
-          📡 ESP32 détecté : <strong>{status.esp32_ap_ssid}</strong>
+        {/* Header */}
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-nc-accent/15 flex items-center justify-center">
+              <Brain className="w-5 h-5 text-nc-accent" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-nc-text">Prêt pour le Neurofeedback</h2>
+              <p className="text-xs text-nc-muted">Signal EEG analysé et stable</p>
+            </div>
+          </div>
+          <button onClick={onDismiss} className="p-1.5 rounded-xl text-nc-muted hover:bg-nc-surface2 transition-colors">
+            <X className="w-4 h-4" />
+          </button>
         </div>
-      )}
 
-      {networks.length > 0 && (
-        <div>
-          <p className="text-[10px] font-semibold text-nc-muted uppercase tracking-wide mb-2">Réseaux mémorisés</p>
-          <div className="space-y-1">
-            {networks.map(net => (
-              <button key={net} onClick={() => { setPending(net); setPhase('confirming') }}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-xl
-                           bg-blue-500/5 border border-blue-500/15 hover:bg-blue-500/10 text-sm text-nc-text transition-colors">
-                <span className="flex items-center gap-2">
-                  <Wifi className="w-3.5 h-3.5 text-nc-accent" />{net}
-                </span>
-                <ChevronRight className="w-3.5 h-3.5 text-nc-muted" />
-              </button>
+        {/* État EEG */}
+        <div className={`p-3 rounded-xl border ${lbl.bg} ${lbl.border} space-y-2`}>
+          <div className="flex items-center justify-between">
+            <span className={`text-sm font-bold ${lbl.color}`}>
+              🧠 {lbl.text}
+            </span>
+            <span className={`font-mono font-bold text-lg ${lbl.color}`}>{conf}%</span>
+          </div>
+          <p className="text-xs text-nc-muted">
+            Stable depuis {stableSeconds}s · Signal qualifié sur les dernières époques
+          </p>
+        </div>
+
+        {/* Features clés */}
+        {features && (
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            {[
+              ['Alpha',     `${((features.rel_alpha  ?? 0) * 100).toFixed(1)}%`],
+              ['Beta',      `${((features.rel_beta   ?? 0) * 100).toFixed(1)}%`],
+              ['TBR',       (features.theta_beta ?? 0).toFixed(2)],
+              ['EI',        (features.engagement ?? 0).toFixed(2)],
+              ['Theta',     `${((features.rel_theta  ?? 0) * 100).toFixed(1)}%`],
+              ['Confiance', `${conf}%`],
+            ].map(([k, v]) => (
+              <div key={k} className="card p-2 text-center">
+                <p className="font-mono font-bold text-nc-text">{v}</p>
+                <p className="text-nc-muted text-[9px] mt-0.5">{k}</p>
+              </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
 
-      <form onSubmit={submitNew} className="space-y-3">
-        <p className="text-[10px] font-semibold text-nc-muted uppercase tracking-wide">Nouveau réseau</p>
-        <div className="space-y-1">
-          <label className="text-xs text-nc-muted">SSID (2,4 GHz uniquement)</label>
-          <input type="text" className="input w-full" value={ssid}
-            onChange={e => setSsid(e.target.value)} placeholder="MonWiFi_2.4G" autoComplete="off" />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs text-nc-muted">Mot de passe</label>
-          <input type="password" className="input w-full" value={password}
-            onChange={e => setPassword(e.target.value)} placeholder="••••••••" autoComplete="off" />
-        </div>
-        <button type="submit" disabled={!ssid.trim()}
-          className="btn-primary w-full py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40">
-          📡 Configurer l'ESP32
-        </button>
-      </form>
+        <p className="text-xs text-nc-muted leading-relaxed">
+          Le système est prêt à démarrer une séance de feedback adaptée à votre profil neurophysiologique.
+        </p>
 
-      <button onClick={() => eegApi.wifiReset().catch(() => {})}
-        className="text-xs text-nc-danger hover:underline w-full text-center">
-        Effacer les réseaux mémorisés (reset)
-      </button>
+        {/* Actions */}
+        <div className="flex gap-3">
+          <button
+            onClick={onStart}
+            className="btn-primary flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold"
+          >
+            <Sparkles className="w-4 h-4" />
+            Démarrer le feedback →
+          </button>
+          <button
+            onClick={onDismiss}
+            className="btn-ghost px-4 py-2.5 rounded-xl text-sm text-nc-muted hover:text-nc-text border border-nc-border"
+          >
+            Continuer l'EEG
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -250,7 +195,7 @@ function WifiSetupCard({ status, onClose }) {
 /* ════════════════════════════════════════════════════════════════════════════════
    Page EEGLive
 ═══════════════════════════════════════════════════════════════════════════════ */
-export default function EEGLive() {
+export default function EEGLive({ embedded = false }) {
   const navigate = useNavigate()
 
   const {
@@ -270,11 +215,22 @@ export default function EEGLive() {
   const [sessionStats,  setSessionStats]  = useState({ n_accepted: 0, n_rejected: 0, states: {} })
   const [sendRep,       setSendRep]       = useState({ loading: false, done: false, error: '' })
 
+  const [showCalibration, setShowCalibration] = useState(false)
+
+  /* ── Popup "Passer au feedback" ── */
+  const [showFeedbackPopup,  setShowFeedbackPopup]  = useState(false)
+  const [popupDismissed,     setPopupDismissed]     = useState(false)
+  const classifiedCountRef  = useRef(0)      // total non-uncertain
+  const consecutiveRef      = useRef(0)      // consécutives même label
+  const lastLabelRef        = useRef(null)
+  const stableSecondsRef    = useRef(0)
+  const lastFeaturesRef     = useRef(null)
+
   /* ── Dérivés WebSocket ── */
   const esp32Connected = esp32Status?.connected ?? initFrame?.esp32_connected ?? false
   const wifiConfigured = initFrame?.wifi_configured ?? false
   const cognitiveState = epochFrame?.state ?? 'neutral'
-  const electrodeOk   = eegFrame?.electrode_ok ?? initFrame?.electrode_ok ?? true
+  const electrodeOk   = eegFrame?.electrode_ok ?? initFrame?.electrode_ok ?? false
   const cqeScore      = epochFrame?.cqe_score ?? 0
 
   const bands = epochFrame?.features ? {
@@ -294,6 +250,7 @@ export default function EEGLive() {
   useEffect(() => {
     if (!epochFrame) return
     if (epochFrame.ml_prediction) setMlPrediction(epochFrame.ml_prediction)
+    if (epochFrame.features) lastFeaturesRef.current = epochFrame.features
     setEpochHistory(prev => [{
       ...epochFrame, _accepted: true, _ts: Date.now(),
     }, ...prev].slice(0, 80))
@@ -303,6 +260,30 @@ export default function EEGLive() {
       states[st] = (states[st] ?? 0) + 1
       return { ...prev, n_accepted: prev.n_accepted + 1, states }
     })
+
+    // ── Logique popup feedback ──
+    const ml = epochFrame.ml_prediction
+    if (ml && !ml.uncertain && ml.state && ml.state !== 'uncertain') {
+      classifiedCountRef.current += 1
+      if (ml.state === lastLabelRef.current) {
+        consecutiveRef.current += 1
+        stableSecondsRef.current += 4
+      } else {
+        consecutiveRef.current = 1
+        stableSecondsRef.current = 4
+        lastLabelRef.current = ml.state
+      }
+      // Déclencher popup : 5 classifiées + 3 consécutives + baseline OK + pas encore dismissé
+      if (
+        classifiedCountRef.current >= 5 &&
+        consecutiveRef.current >= 3 &&
+        baselineOk &&
+        !popupDismissed &&
+        !showFeedbackPopup
+      ) {
+        setShowFeedbackPopup(true)
+      }
+    }
   }, [epochFrame])
 
   useEffect(() => {
@@ -352,6 +333,24 @@ export default function EEGLive() {
     try { const r = await eegApi.finaliseBaseline(); if (r.success) setBaselineOk(true) } catch {}
   }
 
+  const handleStartFeedback = useCallback(() => {
+    setShowFeedbackPopup(false)
+    navigate('/neurofeedback?mode=live', {
+      state: {
+        eeg_state:                lastLabelRef.current ?? 'neutral',
+        classification_confidence: mlPrediction?.confidence ?? 0,
+        features_snapshot:         lastFeaturesRef.current,
+      },
+    })
+  }, [navigate, mlPrediction])
+
+  const handleDismissPopup = useCallback(() => {
+    setShowFeedbackPopup(false)
+    setPopupDismissed(true)
+    // Réautoriser après 10 nouvelles époques
+    setTimeout(() => setPopupDismissed(false), 40_000)
+  }, [])
+
   const sm = STATE_META[cognitiveState] ?? STATE_META.neutral
 
   const TABS = [
@@ -362,20 +361,42 @@ export default function EEGLive() {
   ]
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-5">
+    <div className={`max-w-7xl mx-auto px-4 sm:px-6 ${embedded ? 'py-4' : 'py-6'} space-y-5`}>
+
+      {/* ══ Calibration Overlay ══════════════════════════════════════════════════ */}
+      {showCalibration && (
+        <CalibrationOverlay
+          epochFrame={epochFrame}
+          onClose={() => setShowCalibration(false)}
+          onComplete={() => { setShowCalibration(false); setBaselineOk(true) }}
+        />
+      )}
+
+      {/* ══ Popup Feedback ═══════════════════════════════════════════════════════ */}
+      {showFeedbackPopup && (
+        <FeedbackReadyPopup
+          prediction={mlPrediction}
+          features={lastFeaturesRef.current}
+          stableSeconds={stableSecondsRef.current}
+          onStart={handleStartFeedback}
+          onDismiss={handleDismissPopup}
+        />
+      )}
 
       {/* ══ En-tête ══════════════════════════════════════════════════════════════ */}
       <div className="flex items-center gap-3 flex-wrap">
-        <button onClick={() => navigate('/eeg')}
-          className="p-2 rounded-xl text-nc-muted hover:text-nc-text hover:bg-nc-surface2 transition-colors">
-          <ArrowLeft className="w-5 h-5" />
-        </button>
+        {!embedded && (
+          <button onClick={() => navigate('/eeg')}
+            className="p-2 rounded-xl text-nc-muted hover:text-nc-text hover:bg-nc-surface2 transition-colors">
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+        )}
         <div className="w-10 h-10 rounded-2xl flex items-center justify-center bg-cyan-500/15">
           <Activity className="w-5 h-5 text-nc-accent" />
         </div>
         <div className="flex-1">
           <h1 className="text-2xl font-bold text-nc-text">EEG Live</h1>
-          <p className="text-sm text-nc-muted">Signal temps réel — Fp2 · 250 Hz · AD8232 + ESP32</p>
+          <p className="text-sm text-nc-muted">Signal temps réel — 250 Hz · AD8232 + ESP32</p>
         </div>
 
         {/* Badges connexion */}
@@ -403,6 +424,40 @@ export default function EEGLive() {
               REC {recFmt(recT)}
             </span>
           )}
+
+          {/* ── Bouton Neurofeedback permanent ── */}
+          <button
+            onClick={() => navigate('/neurofeedback?mode=live', {
+              state: {
+                eeg_state:                mlPrediction?.state ?? 'neutral',
+                classification_confidence: mlPrediction?.confidence ?? 0,
+                features_snapshot:         lastFeaturesRef.current,
+              },
+            })}
+            disabled={!mlPrediction}
+            title={!mlPrediction ? 'Attendez la première classification ML' : 'Démarrer le neurofeedback adaptatif'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all
+              ${mlPrediction
+                ? 'bg-nc-accent/12 border-nc-accent/35 text-nc-accent hover:bg-nc-accent/22'
+                : 'border-nc-border/40 text-nc-muted/40 cursor-not-allowed'}`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Neurofeedback
+          </button>
+
+          {/* ── Bouton Calibration EEG ── */}
+          <button
+            onClick={() => setShowCalibration(true)}
+            disabled={!esp32Connected}
+            title={!esp32Connected ? 'Connectez l\'ESP32 avant de démarrer la calibration' : 'Calibration EEG automatisée (8 min)'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all
+              ${esp32Connected
+                ? 'bg-amber-500/12 border-amber-500/35 text-amber-400 hover:bg-amber-500/22'
+                : 'border-nc-border/40 text-nc-muted/40 cursor-not-allowed'}`}
+          >
+            <Brain className="w-3.5 h-3.5" />
+            Calibration
+          </button>
 
           <button onClick={() => setShowWifi(v => !v)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium
@@ -442,8 +497,8 @@ export default function EEGLive() {
             CQE {cqeScore}% · Cal. {Math.round(calProgress * 100)}%
             {baselineOk && ' · Baseline ✓'}
             {electrodeOk
-              ? <span className="text-emerald-400"> · Fp2 OK</span>
-              : <span className="text-red-400"> · Fp2 KO</span>}
+              ? <span className="text-emerald-400"> · Électrode OK</span>
+              : <span className="text-red-400"> · Électrode KO</span>}
           </p>
         </div>
 
@@ -480,28 +535,118 @@ export default function EEGLive() {
 
           {/* Oscilloscope + ML Classifier */}
           <div className="grid lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-2 card overflow-hidden p-2" style={{ height: 260 }}>
+            <div className="lg:col-span-2 card overflow-hidden p-2" style={{ height: 310 }}>
               <SignalCanvas wsData={eegFrame} electrodeOk={electrodeOk} cognitiveState={cognitiveState} />
             </div>
             <MLClassifierCard prediction={mlPrediction} />
           </div>
 
-          {/* Métriques rapides */}
-          {eegFrame && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {[
-                { label: 'Amplitude brute', value: `${Math.round(eegFrame.uv ?? 0)} µV` },
-                { label: 'Filtré',          value: `${(eegFrame.filtered ?? 0).toFixed(1)} µV` },
-                { label: 'Batterie ESP32',  value: `${(eegFrame.batt_V ?? 0).toFixed(2)} V` },
-                { label: 'Époques OK',      value: sessionStats.n_accepted },
-              ].map(({ label, value }) => (
-                <div key={label} className="card p-3 text-center">
-                  <p className="text-base font-bold font-mono text-nc-text">{value}</p>
-                  <p className="text-[10px] text-nc-muted mt-0.5">{label}</p>
-                </div>
-              ))}
+          {/* ── Carte de lancement Neurofeedback ── */}
+          {mlPrediction && !mlPrediction.uncertain && (
+            <div className={`card p-4 flex items-center gap-4 flex-wrap border
+              ${mlPrediction.state === 'concentration'
+                ? 'border-emerald-500/25 bg-emerald-500/5'
+                : mlPrediction.state === 'stress'
+                ? 'border-red-500/25 bg-red-500/5'
+                : 'border-nc-accent/20'}`}>
+              <div className="w-10 h-10 rounded-2xl bg-nc-accent/15 flex items-center justify-center shrink-0">
+                <Sparkles className="w-5 h-5 text-nc-accent" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-nc-text">Démarrer le neurofeedback adaptatif</p>
+                <p className="text-xs text-nc-muted mt-0.5 leading-relaxed">
+                  État classifié : <span className={sm.color}>{sm.label}</span>
+                  {' · '}Confiance {Math.round((mlPrediction.confidence ?? 0) * 100)}%
+                  {' · '}Feedback, justification et guide personnalisés selon vos features EEG
+                </p>
+              </div>
+              <button
+                onClick={() => navigate('/eeg-feedback', {
+                  state: {
+                    source:     'live',
+                    eegState:   mlPrediction.state ?? 'neutral',
+                    confidence: mlPrediction.confidence ?? 0,
+                    features:   lastFeaturesRef.current,
+                  },
+                })}
+                className="btn-primary flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold shrink-0"
+              >
+                <Sparkles className="w-4 h-4" />
+                Lancer →
+              </button>
             </div>
           )}
+
+          {/* Métriques rapides */}
+          {eegFrame && (() => {
+            const settling = eegFrame.raw_metrics?.settling !== false
+            // Affiche la valeur si dans la plage physiologique EEG, sinon masque
+            const fmtUV = (v, maxPhysio = 500) => {
+              if (!electrodeOk || settling) return '— cal —'
+              const n = v ?? 0
+              if (Math.abs(n) > maxPhysio) return '⚠ hors-plage'
+              return `${n.toFixed(1)} µV`
+            }
+            // Batterie LiPo : 4.2 V = 100 %, 3.0 V = 0 %
+            const battV   = eegFrame.batt_V ?? 0
+            const battPct = Math.min(100, Math.max(0, Math.round(((battV - 3.0) / 1.2) * 100)))
+            const battColor = battPct > 60 ? 'text-emerald-400'
+                            : battPct > 20 ? 'text-yellow-400'
+                            : 'text-red-400'
+            const battBarColor = battPct > 60 ? 'bg-emerald-500'
+                               : battPct > 20 ? 'bg-yellow-500'
+                               : 'bg-red-500'
+
+            return (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                {[
+                  { label: 'Signal filtré',   value: fmtUV(eegFrame.filtered, 300),
+                    warn: !settling && electrodeOk && Math.abs(eegFrame.filtered ?? 0) > 150 },
+                  { label: 'RMS signal',      value: fmtUV(eegFrame.raw_metrics?.rms_raw, 150),
+                    warn: !settling && electrodeOk && (eegFrame.raw_metrics?.rms_raw ?? 0) > 80 },
+                  { label: 'Pic (Peak)',      value: fmtUV(eegFrame.raw_metrics?.peak, 500),
+                    warn: !settling && electrodeOk && (eegFrame.raw_metrics?.peak ?? 0) > 250 },
+                  { label: 'Époques OK',      value: sessionStats.n_accepted },
+                ].map(({ label, value, warn }) => (
+                  <div key={label} className={`card p-3 text-center ${warn ? 'border border-yellow-500/30' : ''}`}>
+                    <p className={`text-base font-bold font-mono ${warn ? 'text-yellow-400' : settling ? 'text-nc-muted/40' : 'text-nc-text'}`}>{value}</p>
+                    <p className="text-[10px] text-nc-muted mt-0.5">{label}</p>
+                  </div>
+                ))}
+
+                {/* Batterie ESP32 — affichage en pourcentage avec jauge */}
+                <div className="card p-3 text-center space-y-1.5">
+                  <p className={`text-base font-bold font-mono ${battColor}`}>
+                    {battV > 0 ? `${battPct}%` : '—'}
+                  </p>
+                  {battV > 0 && (
+                    <div className="flex items-center gap-1 px-1">
+                      <div className="flex-1 h-1.5 rounded-full bg-nc-surface2 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${battBarColor}`}
+                          style={{ width: `${battPct}%` }}
+                        />
+                      </div>
+                      {/* Corps batterie */}
+                      <div className="flex items-center shrink-0">
+                        <div className={`w-5 h-3 rounded-sm border ${battColor.replace('text-', 'border-')}/60
+                                        flex items-center px-0.5 gap-0.5`}>
+                          {[0,1,2,3].map(i => (
+                            <div key={i} className={`flex-1 h-1.5 rounded-sm
+                              ${i < Math.ceil(battPct / 25) ? battBarColor : 'bg-nc-surface2'}`} />
+                          ))}
+                        </div>
+                        <div className={`w-0.5 h-1.5 rounded-r ${battBarColor} opacity-70`} />
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-[10px] text-nc-muted">
+                    Batterie ESP32{battV > 0 ? ` · ${battV.toFixed(2)} V` : ''}
+                  </p>
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Bandes spectrales */}
           <div className="card p-5">
@@ -558,102 +703,31 @@ export default function EEGLive() {
       {/* ════════════════════════ FEATURES ══════════════════════════════════════ */}
       {tab === 'features' && (
         <div className="space-y-4">
-          <div className="grid md:grid-cols-2 gap-4">
-
-            {/* Puissances relatives */}
-            <div className="card p-5">
-              <h3 className="text-sm font-semibold text-nc-text mb-4">Puissances spectrales relatives</h3>
-              <BandBars bands={bands} />
-            </div>
-
-            {/* Ratios cognitifs */}
-            <div className="card p-5 space-y-3">
-              <h3 className="text-sm font-semibold text-nc-text">Ratios cognitifs</h3>
-              {epochFrame?.features ? (
-                [
-                  ['Engagement (β / θ+α)',     epochFrame.features.engagement,      true  ],
-                  ['Stress idx (β / α)',        epochFrame.features.stress_idx,      false ],
-                  ['Alpha / Beta',              epochFrame.features.alpha_beta,      false ],
-                  ['TBR — θ / β',              epochFrame.features.theta_beta,      false ],
-                ].map(([label, val, isPct]) => val !== undefined && (
-                  <div key={label} className="flex items-center justify-between border-b border-nc-border/30 pb-1.5 last:border-0 last:pb-0">
-                    <span className="text-xs text-nc-muted">{label}</span>
-                    <span className="text-xs font-mono font-semibold text-nc-text">
-                      {typeof val === 'number' ? (isPct ? `${Math.round(val * 100)}%` : val.toFixed(3)) : '—'}
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <p className="text-xs text-nc-muted text-center py-6">En attente de la première époque (4 s)…</p>
-              )}
-            </div>
-
-            {/* Hjorth + Spectral */}
-            <div className="card p-5 space-y-3">
-              <h3 className="text-sm font-semibold text-nc-text">Hjorth + Spectral</h3>
-              {epochFrame?.features ? (
-                [
-                  ['Activité (RMS²)',       epochFrame.features.activity,         ''],
-                  ['Mobilité',              epochFrame.features.mobility,         ''],
-                  ['Complexité',            epochFrame.features.complexity,       ''],
-                  ['Entropie spectrale',    epochFrame.features.spectral_entropy, ''],
-                  ['SEF95',                 epochFrame.features.sef95,            'Hz'],
-                  ['Pic α individuel',      epochFrame.features.alpha_peak,       'Hz'],
-                ].map(([label, val, unit]) => val !== undefined && (
-                  <div key={label} className="flex items-center justify-between border-b border-nc-border/30 pb-1.5 last:border-0 last:pb-0">
-                    <span className="text-xs text-nc-muted">{label}</span>
-                    <span className="text-xs font-mono font-semibold text-nc-text">
-                      {typeof val === 'number' ? `${val.toFixed(3)}${unit ? ' ' + unit : ''}` : '—'}
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <p className="text-xs text-nc-muted text-center py-6">En attente de la première époque (4 s)…</p>
-              )}
-            </div>
-
-            {/* Fractal + Distribution */}
-            <div className="card p-5 space-y-3">
-              <h3 className="text-sm font-semibold text-nc-text">Fractal & Distribution</h3>
-              {epochFrame?.features ? (
-                [
-                  ['Higuchi FD',       epochFrame.features.higuchi_fd,   '' ],
-                  ['Skewness',         epochFrame.features.skewness,     '' ],
-                  ['Kurtosis',         epochFrame.features.kurtosis,     '' ],
-                  ['ZCR',              epochFrame.features.zcr,          '' ],
-                  ['RMS signal',       epochFrame.features.rms,          'µV'],
-                  ['EMG ratio',        epochFrame.features.emg_ratio,    '%' ],
-                ].map(([label, val, unit]) => val !== undefined && (
-                  <div key={label} className="flex items-center justify-between border-b border-nc-border/30 pb-1.5 last:border-0 last:pb-0">
-                    <span className="text-xs text-nc-muted">{label}</span>
-                    <span className="text-xs font-mono font-semibold text-nc-text">
-                      {typeof val === 'number'
-                        ? (unit === '%' ? `${(val * 100).toFixed(1)}%` : `${val.toFixed(3)}${unit ? ' ' + unit : ''}`)
-                        : '—'}
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <p className="text-xs text-nc-muted text-center py-6">En attente de la première époque (4 s)…</p>
-              )}
-            </div>
-          </div>
-
-          {/* Artefacts */}
-          {epochFrame?.artifacts && (
-            <div className="card p-4 flex flex-wrap items-center gap-4 text-xs">
+          {/* Artefacts — bandeau rapide */}
+          {epochFrame?.eog_detected !== undefined && (
+            <div className="card p-3 flex flex-wrap items-center gap-4 text-xs">
               <span className="text-nc-muted font-semibold">Artefacts :</span>
-              <span className={epochFrame.artifacts.eog_detected ? 'text-yellow-400 font-semibold' : 'text-emerald-400'}>
-                {epochFrame.artifacts.eog_detected ? '⚠ EOG détecté' : '✓ EOG OK'}
+              <span className={epochFrame.eog_detected ? 'text-yellow-400 font-semibold' : 'text-emerald-400'}>
+                {epochFrame.eog_detected ? '⚠ EOG détecté' : '✓ EOG OK'}
               </span>
-              <span className={epochFrame.artifacts.emg_suspect ? 'text-orange-400 font-semibold' : 'text-emerald-400'}>
-                {epochFrame.artifacts.emg_suspect ? '⚠ EMG suspect' : '✓ EMG OK'}
+              <span className={epochFrame.emg_suspect ? 'text-orange-400 font-semibold' : 'text-emerald-400'}>
+                {epochFrame.emg_suspect ? '⚠ EMG suspect' : '✓ EMG OK'}
               </span>
               {epochFrame.features?.emg_ratio !== undefined && (
                 <span className="text-nc-muted font-mono">
-                  EMG : {((epochFrame.features.emg_ratio ?? 0) * 100).toFixed(1)}%
+                  EMG ratio : {((epochFrame.features.emg_ratio ?? 0) * 100).toFixed(1)}%
                 </span>
               )}
+            </div>
+          )}
+
+          {epochFrame?.features ? (
+            <FeaturesPanel features={epochFrame.features} epochIdx={epochFrame.epoch_idx} />
+          ) : (
+            <div className="card p-12 text-center space-y-3">
+              <p className="text-3xl">📊</p>
+              <p className="text-sm text-nc-muted">En attente de la première époque (4 s de signal valide)…</p>
+              <p className="text-xs text-nc-muted/60">Fenêtre 4 s · Overlap 75% · Welch PSD</p>
             </div>
           )}
 
@@ -812,7 +886,7 @@ export default function EEGLive() {
               ['ESP32 connecté',     esp32Connected ? 'Oui' : 'Non',       esp32Connected ? 'text-emerald-400' : 'text-red-400'],
               ['IP ESP32',           initFrame?.esp32_ip ?? '—',           'text-nc-text'],
               ['WiFi configuré',     wifiConfigured ? 'Oui' : 'Non',       wifiConfigured ? 'text-emerald-400' : 'text-nc-muted'],
-              ['Électrode Fp2',      electrodeOk ? 'OK' : 'KO',           electrodeOk ? 'text-emerald-400' : 'text-red-400'],
+              ['Électrode',          electrodeOk ? 'OK' : 'KO',           electrodeOk ? 'text-emerald-400' : 'text-red-400'],
               ['CQE signal',         `${cqeScore}%`,                       cqeScore >= 60 ? 'text-emerald-400' : 'text-yellow-400'],
               ['Enregistrement',     rec ? `En cours ${recFmt(recT)}` : 'Arrêté', rec ? 'text-red-400' : 'text-nc-muted'],
             ].map(([label, value, color]) => (

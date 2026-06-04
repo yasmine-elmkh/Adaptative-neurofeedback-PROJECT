@@ -248,7 +248,7 @@ export default function Register() {
             {step === 'form' && (
               <>
                 <div className="flex flex-col items-center gap-3">
-                  <img src="/NeuroCap_Logo.png" alt="NeuroCap" className="w-14 h-14 object-contain" />
+                  <img src="/NeuroCap_logo.png" alt="NeuroCap" className="w-14 h-14 object-contain" />
                   <div className="text-center">
                     <h1 className="text-2xl font-bold text-nc-text">{t('auth.register.title')}</h1>
                     <p className="text-sm text-nc-muted mt-1">{t('auth.register.subtitle')}</p>

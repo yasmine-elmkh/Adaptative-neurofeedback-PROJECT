@@ -83,17 +83,22 @@ async def get_current_user(
 
     return user
 
-async def get_token_user_id(token: str, db: AsyncClient) -> Optional[str]:
+async def get_token_user_id(
+    creds: HTTPAuthorizationCredentials = Depends(bearer),
+    db: AsyncClient = Depends(get_db),
+) -> str:
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(creds.credentials, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         user_id = payload.get("sub")
         if not user_id or payload.get("type") != "access":
-            return None
+            raise HTTPException(status_code=401, detail="Token invalide")
         resp = await db.table("users").select("id,is_active").eq("id", user_id).execute()
         user = resp.data[0] if resp.data else None
-        return user["id"] if user and user.get("is_active") else None
+        if not user or not user.get("is_active"):
+            raise HTTPException(status_code=401, detail="Utilisateur introuvable ou inactif")
+        return user["id"]
     except JWTError:
-        return None
+        raise HTTPException(status_code=401, detail="Token invalide ou expiré")
 
 async def get_admin_user(
     current_user: Dict[str, Any] = Depends(get_current_user),

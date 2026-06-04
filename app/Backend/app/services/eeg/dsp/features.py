@@ -160,7 +160,7 @@ def extract_features(epoch_filtered: np.ndarray,
             "rms_uv": 0.0, "mean_amp": 0.0,
             "rel_delta": 0.2, "rel_theta": 0.2,
             "rel_alpha": 0.2, "rel_beta": 0.2,
-            "rel_gamma_low": 0.2,
+            "rel_beta_high": 0.2, "rel_gamma_low": 0.2,
             "engagement": 0.0, "stress_idx": 0.0,
             "theta_alpha": 0.0, "alpha_beta": 0.0,
             "hjorth_activity": 0.0, "hjorth_mobility": 0.0,
@@ -189,7 +189,7 @@ def extract_features(epoch_filtered: np.ndarray,
 
     def bp(lo: float, hi: float) -> float:
         mask = (f >= lo) & (f <= hi)
-        return float(np.trapezoid(psd[mask], f[mask])) if mask.any() else 0.0
+        return float(np.trapz(psd[mask], f[mask])) if mask.any() else 0.0
 
     p_delta     = bp(1.0,  4.0)
     p_theta     = bp(6.0,  8.0)   # theta cognitif 6-8 Hz

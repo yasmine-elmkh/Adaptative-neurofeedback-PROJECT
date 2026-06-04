@@ -30,6 +30,11 @@ from app.routes.admin import router as admin_router
 from app.routes.assistant import router as assistant_router
 from app.routes.therapist import router as therapist_router
 from app.routes.eeg import router as eeg_router
+from app.routes.media import router as media_router
+from app.routes.feedback import router as feedback_router
+from app.routes.eeg_feedback import router as eeg_feedback_router
+from app.routes.protocol    import router as protocol_router
+from app.routes.recommendations import router as recommendations_router
 from app.services.eeg.eeg_pipeline import pipeline as eeg_pipeline
 from app.services.finetune.scheduler import start_scheduler, stop_scheduler
 
@@ -77,6 +82,7 @@ app = FastAPI(
     description="Système intelligent de neurofeedback EEG adaptatif (CdC 2026)",
     version="2.2.0",
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 add_security_middleware(app)
@@ -93,6 +99,21 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
     )
 
 
+# ── Handler 500 — log le traceback complet ───────────────────────────────────
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.error(
+        "500 Internal Server Error: %s %s — %s",
+        request.method, request.url.path, exc,
+        exc_info=True,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Erreur interne : {type(exc).__name__}: {exc}"},
+    )
+
+
 # ── Routers API ───────────────────────────────────────────────────────────────
 app.include_router(auth_router)
 app.include_router(sessions_router)
@@ -101,11 +122,17 @@ app.include_router(admin_router)
 app.include_router(assistant_router)
 app.include_router(therapist_router)
 app.include_router(eeg_router)          # /api/eeg/*
+app.include_router(media_router)        # /api/media/*
+app.include_router(feedback_router)     # /api/feedback/*
+app.include_router(eeg_feedback_router) # /api/eeg-feedback/*
+app.include_router(protocol_router)     # /api/protocol/*
+app.include_router(recommendations_router)  # /api/sessions/*/media-* + /api/patients/* + /api/eeg-reports/* + /api/finetuning/*
 
 
 # ── Health check ─────────────────────────────────────────────────────────────
 
 @app.get("/health", tags=["Système"])
+@app.get("/api/health", tags=["Système"])
 async def health():
     return {"status": "ok", "version": "2.2.0"}
 
