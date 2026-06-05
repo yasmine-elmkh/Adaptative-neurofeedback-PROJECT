@@ -7,14 +7,14 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuthStore } from '../stores';
 import EEGVisualization from '../components/EEGVisualization';
 import GaugeChart from '../components/GaugeChart';
 import BiofeedbackGame from '../components/BiofeedbackGame';
 
 export default function SessionPage() {
   const { sessionId } = useParams();
-  const { token } = useAuth();
+  const token = useAuthStore((s) => s.token);
   const [eegData, setEegData] = useState(null);
   const [sessionMetrics, setSessionMetrics] = useState({
     score: 0,
@@ -26,7 +26,7 @@ export default function SessionPage() {
   useEffect(() => {
     // Connecter WebSocket pour streaming EEG
     const ws = new WebSocket(
-      `ws://localhost:8000/sessions/ws/${sessionId}?token=${token}`
+      `/ws/session/${sessionId}?token=${token}`
     );
 
     ws.onmessage = (event) => {

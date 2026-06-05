@@ -29,6 +29,7 @@ import SessionEntry             from './pages/SessionEntry'
 import PatientMediaDashboard    from './pages/PatientMediaDashboard'
 import SessionSetup             from './pages/SessionSetup'
 import NeurofeedbackSession     from './pages/NeurofeedbackSession'
+import ConsentPage              from './pages/ConsentPage'
 
 import { useAuthStore } from './stores'
 
@@ -73,6 +74,30 @@ function DashboardRoute() {
 }
 
 /* Role-gated route — shows spinner while user object is being loaded */
+/*
+ * ConsentGuard — redirige vers /consent si le patient n'a pas encore accepté.
+ * Affiche un spinner le temps que le profil utilisateur soit chargé.
+ */
+function ConsentGuard({ children }) {
+  const user  = useAuthStore((s) => s.user)
+  const token = useAuthStore((s) => s.token)
+
+  if (token && !user) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <div className="w-8 h-8 border-2 border-nc-accent border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  const role = user?.role
+  if (user && role !== 'admin' && role !== 'therapist' && !user.consent_accepted) {
+    return <Navigate to="/consent" replace />
+  }
+
+  return children
+}
+
 function RoleRoute({ children, roles }) {
   const user  = useAuthStore((s) => s.user)
   const token = useAuthStore((s) => s.token)
@@ -96,7 +121,10 @@ export default function App() {
         <Route path="/login"    element={<PublicRoute><Login /></PublicRoute>} />
         <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
 
-        <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
+        {/* Consentement — accessible après login, sans ConsentGuard ni Layout */}
+        <Route path="/consent" element={<PrivateRoute><ConsentPage /></PrivateRoute>} />
+
+        <Route element={<PrivateRoute><ConsentGuard><Layout /></ConsentGuard></PrivateRoute>}>
           <Route path="/dashboard"    element={<DashboardRoute />} />
           <Route path="/history"      element={<History />} />
           <Route path="/history/:id"  element={<History />} />

@@ -642,6 +642,109 @@ async def send_session_report_email(
     logger.info("✅ Email rapport séance %d envoyé à %s", session_number, to_email)
 
 
+def _html_consent(patient_name: str) -> str:
+    first_name = patient_name.split()[0] if patient_name else "Participant"
+    return f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#0a0e1a;font-family:system-ui,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0e1a;padding:40px 0;">
+    <tr><td align="center">
+      <table width="520" cellpadding="0" cellspacing="0"
+             style="background:#111827;border-radius:16px;overflow:hidden;border:1px solid #1e2a3a;">
+        <tr>
+          <td style="background:linear-gradient(135deg,#00b4d8,#0077b6);padding:32px 40px;text-align:center;">
+            <div style="font-size:28px;font-weight:800;color:#fff;letter-spacing:-0.5px;">NeuroCap</div>
+            <div style="font-size:13px;color:rgba(255,255,255,0.7);margin-top:4px;">Consentement éclairé confirmé ✓</div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:40px;">
+            <h2 style="margin:0 0 8px;color:#f0f4ff;font-size:20px;">Bonjour {first_name},</h2>
+            <p style="margin:0 0 24px;color:#8899aa;font-size:14px;line-height:1.6;">
+              Votre consentement éclairé pour le programme NeuroCap a bien été enregistré.
+              Vous trouverez ci-joint le document de consentement personnalisé en pièce jointe.
+            </p>
+            <div style="background:#1e2a3a;border-left:3px solid #00b4d8;border-radius:8px;
+                        padding:16px 20px;margin-bottom:28px;">
+              <p style="margin:0;color:#c8d8e8;font-size:13px;line-height:1.6;">
+                Vous pouvez vous retirer de l'étude à tout moment, sans justification
+                et sans aucune conséquence. Pour toute question, contactez votre thérapeute NeuroCap.
+              </p>
+            </div>
+            <div style="text-align:center;margin-bottom:24px;">
+              <a href="http://localhost:5173/dashboard"
+                 style="display:inline-block;background:linear-gradient(135deg,#00b4d8,#0077b6);
+                        color:#fff;font-weight:700;font-size:15px;padding:14px 36px;
+                        border-radius:12px;text-decoration:none;letter-spacing:0.3px;">
+                Accéder à mon espace →
+              </a>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:20px 40px;border-top:1px solid #1e2a3a;text-align:center;">
+            <div style="color:#4a5568;font-size:11px;">
+              © 2026 NeuroCap — Easy Medical Device · Tous droits réservés
+            </div>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
+
+def _send_consent_blocking(to_email: str, patient_name: str, pdf_bytes: bytes) -> None:
+    from email.mime.application import MIMEApplication
+
+    msg = MIMEMultipart("mixed")
+    msg["Subject"] = "NeuroCap — Confirmation de votre consentement éclairé"
+    msg["From"]    = settings.SMTP_FROM
+    msg["To"]      = to_email
+
+    body = MIMEMultipart("alternative")
+    first_name = patient_name.split()[0] if patient_name else "Participant"
+    plain = (
+        f"Bonjour {first_name},\n\n"
+        "Votre consentement éclairé NeuroCap a bien été enregistré.\n"
+        "Veuillez trouver votre document de consentement en pièce jointe.\n\n"
+        "Vous pouvez vous retirer de l'étude à tout moment sans justification.\n\n"
+        "L'équipe NeuroCap"
+    )
+    body.attach(MIMEText(plain, "plain", "utf-8"))
+    body.attach(MIMEText(_html_consent(patient_name), "html", "utf-8"))
+    msg.attach(body)
+
+    filename = f"NeuroCap_Consentement_{patient_name.replace(' ', '_')}.pdf"
+    pdf_part = MIMEApplication(pdf_bytes, _subtype="pdf")
+    pdf_part.add_header("Content-Disposition", "attachment", filename=filename)
+    msg.attach(pdf_part)
+
+    try:
+        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as server:
+            server.ehlo(); server.starttls(); server.ehlo()
+            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+            server.sendmail(settings.SMTP_FROM, [to_email], msg.as_string())
+    except smtplib.SMTPAuthenticationError:
+        raise EmailSendError("Identifiants SMTP Brevo invalides.")
+    except (smtplib.SMTPException, OSError) as exc:
+        raise EmailSendError(f"Échec SMTP : {exc}")
+
+
+async def send_consent_email(to_email: str, patient_name: str, pdf_bytes: bytes) -> None:
+    """Envoie la confirmation de consentement avec le PDF personnalisé en pièce jointe."""
+    if not settings.SMTP_USER:
+        logger.warning(
+            "⚠️  SMTP_USER non configuré — EMAIL CONSENTEMENT pour %s (dev mode)", to_email
+        )
+        return
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _send_consent_blocking, to_email, patient_name, pdf_bytes)
+    logger.info("✅ Email consentement envoyé à %s", to_email)
+
+
 async def send_verification_email(to_email: str, code: str) -> None:
     """
     Envoie le code de vérification via Brevo SMTP.

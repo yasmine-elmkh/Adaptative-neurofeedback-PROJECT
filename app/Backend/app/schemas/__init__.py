@@ -59,6 +59,7 @@ class UserOut(BaseModel):
     role: str
     therapist_id: Optional[str] = None
     is_active: bool
+    consent_accepted: Optional[bool] = False
     created_at: Optional[datetime] = None
     model_config = {"from_attributes": True}
 

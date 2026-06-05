@@ -35,6 +35,7 @@ from app.routes.feedback import router as feedback_router
 from app.routes.eeg_feedback import router as eeg_feedback_router
 from app.routes.protocol    import router as protocol_router
 from app.routes.recommendations import router as recommendations_router
+from app.routes.consent       import router as consent_router
 from app.services.eeg.eeg_pipeline import pipeline as eeg_pipeline
 from app.services.finetune.scheduler import start_scheduler, stop_scheduler
 
@@ -127,6 +128,7 @@ app.include_router(feedback_router)     # /api/feedback/*
 app.include_router(eeg_feedback_router) # /api/eeg-feedback/*
 app.include_router(protocol_router)     # /api/protocol/*
 app.include_router(recommendations_router)  # /api/sessions/*/media-* + /api/patients/* + /api/eeg-reports/* + /api/finetuning/*
+app.include_router(consent_router)          # /api/consent/*
 
 
 # ── Health check ─────────────────────────────────────────────────────────────

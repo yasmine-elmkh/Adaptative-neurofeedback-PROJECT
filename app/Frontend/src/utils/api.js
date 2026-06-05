@@ -31,6 +31,7 @@ API.interceptors.response.use(
       return new Promise((resolve, reject) => {
         _refreshQueue.push({ resolve, reject })
       }).then(token => {
+        original._retry = true
         original.headers.Authorization = `Bearer ${token}`
         return API(original)
       })
@@ -313,3 +314,5 @@ export const therapistExtended = {
       recommended_objective: recommendedObjective,
     }).then(r => r.data),
 }
+
+export default API

@@ -13,6 +13,7 @@ export default defineConfig({
         configure: (proxy) => {
           proxy.on('error', () => {})
           proxy.on('proxyReqWs', (_, __, socket) => { socket.on('error', () => {}) })
+          proxy.on('proxyResWs', (_, __, socket) => { socket.on('error', () => {}) })
         },
       },
       '/ws': {
@@ -21,6 +22,7 @@ export default defineConfig({
         configure: (proxy) => {
           proxy.on('error', () => {})
           proxy.on('proxyReqWs', (_, __, socket) => { socket.on('error', () => {}) })
+          proxy.on('proxyResWs', (_, __, socket) => { socket.on('error', () => {}) })
         },
       },
     },
