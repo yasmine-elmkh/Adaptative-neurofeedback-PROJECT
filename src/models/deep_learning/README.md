@@ -8,7 +8,7 @@ PyTorch implementations of 19 deep learning architectures for EEG mental state c
 
 ```
 deep_learning/
-├── architectures/         # Model class definitions
+├── architectures/         # Model class definitions (19 architectures)
 │   ├── CNN1D.py / CNN2D.py / CNN3D.py
 │   ├── LSTM1L.py / LSTM2L.py / LSTM_ATT.py
 │   ├── BILSTM1L.py / BILSTM2L.py / BILSTM_ATT.py
@@ -18,8 +18,12 @@ deep_learning/
 │   ├── CNN_GRU.py
 │   ├── EEGNet.py
 │   └── TCN.py
+├── architectures_DANN/    # Domain Adversarial variants of all 19 architectures
+│   └── <ArchName>_DANN.py (one file per architecture)
 ├── DL_utils.py            # Dataset, trainer, metrics, plotting helpers
+├── DANN_utils.py          # Domain adversarial training loop and GRL
 ├── compare.py             # Cross-model leaderboard and comparison charts
+├── compare_dann.py        # DANN variant comparison
 └── diagnostic_confound.py # Confound analysis (subject/session effects)
 ```
 

@@ -36,8 +36,10 @@ src/
 | `src/data/augmentation_eeg.py` | Augment training epochs |
 | `src/data/merge_datasets.py` | Build unified 3-class dataset |
 | `src/models/baselines/baseline_ML.py` | Train and evaluate RF/SVM/XGBoost |
-| `src/models/deep_learning/train.py` | Train any DL model by name |
-| `src/models/inference/predict.py` | Run live or batch inference |
+| `src/models/baselines/baseline_ML_feature_eng.py` | Train baselines on engineered features |
+| `src/models/deep_learning/compare.py` | Compare all DL models, generate leaderboard |
+| `src/models/deep_learning/compare_dann.py` | Compare DANN domain-adaptive variants |
+| `src/models/transfer_learning/compare_tl.py` | Compare EEGNet fine-tuning strategies |
 
 ---
 
@@ -47,11 +49,11 @@ src/
 # 1. Preprocess raw data
 python src/data/pipeline_fp2.py --input data/Dataset/ --output data/Merge_datasets/
 
-# 2. Train the best model
-python src/models/deep_learning/train.py --model CNN_LSTM_Att --epochs 100
+# 2. Train baselines
+python src/models/baselines/baseline_ML.py --data data/Merge_datasets/datasets_merged/
 
-# 3. Evaluate and compare all models
-python src/models/deep_learning/compare.py
+# 3. Compare all deep learning models
+python src/models/deep_learning/compare.py --results-dir reports/deep_learning/DL_outputs/
 ```
 
 ---

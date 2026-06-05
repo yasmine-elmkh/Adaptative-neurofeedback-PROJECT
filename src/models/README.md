@@ -14,21 +14,22 @@ src/models/
 │   └── compare_baselines_features.py # Cross-feature-set comparison
 │
 ├── deep_learning/         # Deep learning models
-│   ├── architectures/     # Model class definitions (19 architectures)
-│   ├── DL_utils.py        # Shared: dataset loader, trainer loop, metrics
-│   ├── compare.py         # Cross-model comparison and leaderboard
-│   └── diagnostic_confound.py   # Subject/session confound analysis
+│   ├── architectures/          # Model class definitions (19 architectures)
+│   ├── architectures_DANN/     # Domain Adversarial variants (19 architectures)
+│   ├── DL_utils.py             # Shared: dataset loader, trainer loop, metrics
+│   ├── DANN_utils.py           # Domain adversarial training + GRL
+│   ├── compare.py              # Cross-model comparison and leaderboard
+│   ├── compare_dann.py         # DANN variant comparison
+│   └── diagnostic_confound.py  # Subject/session confound analysis
 │
-├── inference/             # Production inference
-│   └── predict.py         # Load model + run prediction on raw epoch
-│
-├── transfer_learning/     # EEGNet fine-tuning
+├── transfer_learning/     # EEGNet fine-tuning strategies
 │   ├── EEGNet_feature_extraction.py  # Frozen backbone
 │   ├── EEGNet_full_finetuning.py     # All layers updated
-│   └── EEGNet_layer_replacement.py   # Replace last 2 classification layers
+│   ├── EEGNet_layer_replacement.py   # Replace last 2 classification layers
+│   └── compare_tl.py                 # Transfer learning strategy comparison
 │
-└── compare/               # Aggregate comparison utilities
-    └── compare_tl.py      # Transfer learning strategy comparison
+├── inference/             # Production inference (placeholder)
+└── compare/               # Aggregate comparison (placeholder)
 ```
 
 ---

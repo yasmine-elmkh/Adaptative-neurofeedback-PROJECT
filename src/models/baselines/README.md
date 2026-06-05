@@ -12,6 +12,8 @@ Classical machine learning classifiers trained on raw and engineered EEG feature
 | `baseline_ML_feature_eng.py` | Same classifiers on the selected + normalised engineered feature set |
 | `compare_baselines_features.py` | Side-by-side comparison of raw vs engineered features, generates bar charts |
 
+> `gen_dummy_model.py` has been removed — it generated a LightGBM model on fully synthetic data and had no production utility.
+
 ---
 
 ## Models
