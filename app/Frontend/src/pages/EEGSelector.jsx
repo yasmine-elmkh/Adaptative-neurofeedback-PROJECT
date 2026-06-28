@@ -218,8 +218,8 @@ function FullElectrodeGuide({ onStartLive }) {
             { label: 'Filtre Golden',  value: '1–45 Hz (IIR)'     },
             { label: 'Taille époque',  value: '4s (1000 samples)' },
             { label: 'Overlap',        value: '75% (250 samples)' },
-            { label: 'Features ML',    value: '63 (LightGBM LOSO)'},
-            { label: 'Classifieur',    value: 'Z-score individuel'},
+            { label: 'Modèle IA',      value: 'EEGNet Conv2d'     },
+            { label: 'Stratégie',      value: 'DL + TL (FULL)'   },
           ].map(({ label, value }) => (
             <div key={label} className="bg-nc-surface2/50 rounded-xl p-3">
               <p className="text-[10px] text-nc-muted uppercase tracking-wide">{label}</p>
@@ -434,8 +434,8 @@ export default function EEGSelector() {
         {[
           { label: 'Fréquence',    value: '250 Hz',     sub: 'Fp2 canal unique'   },
           { label: 'Époque',       value: '4 s',        sub: 'Overlap 75%'        },
-          { label: 'Features',     value: '63',         sub: 'FeatEng LightGBM'   },
-          { label: 'Classificateur', value: 'LGBM',    sub: 'LOSO validé'        },
+          { label: 'Modèle',       value: 'EEGNet',     sub: 'Conv2d monocanal'   },
+          { label: 'Stratégie',    value: 'DL + TL',   sub: 'AUC 0.75 / 0.61'   },
         ].map(({ label, value, sub }) => (
           <div key={label} className="card p-4 text-center">
             <p className="text-lg font-bold font-mono text-nc-accent">{value}</p>

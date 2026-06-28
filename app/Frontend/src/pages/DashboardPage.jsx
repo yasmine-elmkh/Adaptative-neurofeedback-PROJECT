@@ -258,6 +258,7 @@ function EmptyState({ t, onStartSession }) {
 const DOMINANT_LABEL = {
   stress:        { label: 'Stress',        cssVar: 'nc-danger'  },
   concentration: { label: 'Concentration', cssVar: 'nc-accent'  },
+  neutral:       { label: 'Neutre',        cssVar: 'nc-muted'   },
   uncertain:     { label: 'Incertain',     cssVar: 'nc-muted'   },
 }
 
@@ -335,7 +336,7 @@ function EEGRecordingsPanel({ reports, sessions }) {
           label="État dominant (dernier)"
           value={lastDomInfo?.label ?? '—'}
           color={lastReport
-            ? ({ stress: 'nc-danger', concentration: 'nc-accent', uncertain: 'nc-warning' }[lastReport.dominant_state] ?? 'nc-accent')
+            ? ({ stress: 'nc-danger', concentration: 'nc-accent', neutral: 'nc-muted', uncertain: 'nc-warning' }[lastReport.dominant_state] ?? 'nc-accent')
             : 'nc-accent'}
         />
       </div>
@@ -474,17 +475,29 @@ function EEGRecordingsPanel({ reports, sessions }) {
 
 // ── Mini assistant flottant ──────────────────────────────────────────────────
 let _fid = 0
-const mkFMsg = (role, text) => ({ id: ++_fid, role, text })
+const mkFMsg = (role, text, sources = []) => ({ id: ++_fid, role, text, sources })
+
+// Suggestions rapides contextuelles (NEJM RAG article : patient education use case)
+const QUICK_SUGGESTIONS = [
+  { label: '📊 Expliquer mon dashboard', action: 'explain' },
+  { label: '🎯 Comment améliorer mon TBR ?', action: 'ask', text: 'Comment améliorer mon TBR et ma concentration ?' },
+  { label: '😤 Réduire mon stress EEG', action: 'ask', text: 'Quels exercices faire pour réduire mon stress avant une séance ?' },
+  { label: '📈 Ma progression', action: 'ask', text: 'Comment interpréter ma progression sur le programme ?' },
+]
 
 function FloatingAssistant({ open, onToggle }) {
-  const [messages, setMessages] = useState([])
-  const [input,    setInput]    = useState('')
-  const [loading,  setLoading]  = useState(false)
+  const [messages,     setMessages]     = useState([])
+  const [input,        setInput]        = useState('')
+  const [loading,      setLoading]      = useState(false)
+  const [showSuggest,  setShowSuggest]  = useState(true)
   const bottomRef = useRef()
 
   useEffect(() => {
     if (open && messages.length === 0) {
-      setMessages([mkFMsg('assistant', 'Bonjour ! Je suis votre assistant NeuroCap. Posez-moi vos questions sur vos sessions EEG, votre progression ou le neurofeedback.')])
+      setMessages([mkFMsg('assistant',
+        'Bonjour ! Je suis NeuroCoach, votre assistant NeuroCap.\n\n' +
+        'Je peux analyser vos résultats EEG, expliquer vos métriques et vous guider dans votre programme de 15 séances.'
+      )])
     }
   }, [open])
 
@@ -492,75 +505,141 @@ function FloatingAssistant({ open, onToggle }) {
     if (open) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, open])
 
+  const _ragErrMsg = (err) => {
+    if (!err?.response) return 'Impossible de joindre le serveur. Vérifiez que le backend est démarré sur le port 8001.'
+    const status = err.response.status
+    if (status === 401) return 'Session expirée. Reconnectez-vous.'
+    if (status === 422) return 'Requête invalide (422). Contactez le support.'
+    if (status === 500) {
+      const detail = err.response.data?.detail || ''
+      return `Erreur serveur (500)${detail ? ' : ' + detail.slice(0, 120) : ''}. Vérifiez les logs backend.`
+    }
+    return `Erreur ${status}. Réessayez.`
+  }
+
   const send = useCallback(async (text = input.trim()) => {
     if (!text || loading) return
     setMessages(m => [...m, mkFMsg('user', text)])
     setInput('')
     setLoading(true)
+    setShowSuggest(false)
     try {
-      const res = await assistantApi.ask(text, null, null)
-      setMessages(m => [...m, mkFMsg('assistant', res.response ?? res.answer ?? 'Une erreur est survenue.')])
-    } catch {
-      setMessages(m => [...m, mkFMsg('assistant', 'Impossible de contacter l\'assistant pour le moment.')])
+      const res    = await assistantApi.ask(text, null, null)
+      const answer = res.answer ?? res.response ?? 'Une erreur est survenue.'
+      setMessages(m => [...m, mkFMsg('assistant', answer, res.sources || [])])
+    } catch (err) {
+      setMessages(m => [...m, mkFMsg('assistant', _ragErrMsg(err))])
     } finally {
       setLoading(false)
     }
   }, [input, loading])
+
+  const handleExplain = useCallback(async () => {
+    setMessages(m => [...m, mkFMsg('user', '📊 Explique-moi tous mes résultats du dashboard')])
+    setShowSuggest(false)
+    setLoading(true)
+    try {
+      const res    = await assistantApi.explain()
+      const answer = res.answer ?? res.response ?? 'Une erreur est survenue.'
+      setMessages(m => [...m, mkFMsg('assistant', answer, res.sources || [])])
+    } catch (err) {
+      setMessages(m => [...m, mkFMsg('assistant', _ragErrMsg(err))])
+    } finally {
+      setLoading(false)
+    }
+  }, [loading])
+
+  const handleSuggestion = useCallback((s) => {
+    if (s.action === 'explain') handleExplain()
+    else send(s.text)
+  }, [handleExplain, send])
 
   return (
     <>
       {/* Panel chat flottant */}
       {open && (
         <div
-          className="fixed bottom-24 end-6 z-50 flex flex-col rounded-2xl shadow-glass-lg border border-nc-border overflow-hidden animate-fade-in"
-          style={{ width: 340, height: 480, background: 'rgb(var(--nc-surface))' }}
+          className="fixed bottom-6 end-6 z-50 flex flex-col rounded-2xl shadow-glass-lg border border-nc-border overflow-hidden animate-fade-in"
+          style={{ width: 560, height: 'calc(100vh - 5rem)', background: 'rgb(var(--nc-surface))' }}
         >
           {/* Header */}
-          <div className="flex items-center gap-2.5 px-4 py-3 border-b border-nc-border shrink-0"
+          <div className="flex items-center gap-3 px-5 py-4 border-b border-nc-border shrink-0"
                style={{ background: 'linear-gradient(135deg, rgb(var(--nc-accent)/0.12), rgb(var(--nc-accent)/0.05))' }}>
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white shrink-0"
+            <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-white shrink-0"
                  style={{ background: 'linear-gradient(135deg, rgb(var(--nc-accent)), rgb(var(--nc-accent)/0.6))' }}>
-              <Sparkles className="w-4 h-4" />
+              <Sparkles className="w-5 h-5" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-nc-text">Assistant NeuroCap</p>
-              <p className="text-[10px] text-nc-muted">IA — Questions EEG & neurofeedback</p>
+              <p className="text-base font-bold text-nc-text">NeuroCoach</p>
+              <p className="text-xs text-nc-muted">Assistant EEG · RAG · Données personnelles</p>
             </div>
-            <button onClick={onToggle} className="p-1 rounded-lg text-nc-muted hover:text-nc-text hover:bg-nc-surface2 transition-colors">
+            <button onClick={onToggle} className="p-1.5 rounded-xl text-nc-muted hover:text-nc-text hover:bg-nc-surface2 transition-colors">
               <X className="w-4 h-4" />
             </button>
           </div>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {messages.map(m => (
-              <div key={m.id} className={`flex gap-2 ${m.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5
+              <div key={m.id} className={`flex gap-2.5 ${m.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5
                                  ${m.role === 'user' ? 'bg-nc-accent/20 text-nc-accent' : 'text-white'}`}
                      style={m.role !== 'user' ? { background: 'linear-gradient(135deg, rgb(var(--nc-accent)), rgb(var(--nc-accent)/0.6))' } : {}}>
-                  {m.role === 'user' ? <User className="w-3 h-3" /> : <Bot className="w-3 h-3" />}
+                  {m.role === 'user' ? <User className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
                 </div>
-                <div className={`px-3 py-2 rounded-xl text-xs leading-relaxed max-w-[78%]
-                                 ${m.role === 'user'
-                                   ? 'bg-nc-accent text-white rounded-tr-sm'
-                                   : 'bg-nc-surface2 text-nc-text rounded-tl-sm border border-nc-border'}`}>
-                  {m.text}
+                <div className="flex flex-col gap-1 max-w-[85%]">
+                  <div className={`px-3.5 py-2.5 rounded-xl text-sm leading-relaxed whitespace-pre-wrap
+                                   ${m.role === 'user'
+                                     ? 'bg-nc-accent text-white rounded-tr-sm'
+                                     : 'bg-nc-surface2 text-nc-text rounded-tl-sm border border-nc-border'}`}>
+                    {m.text}
+                  </div>
+                  {/* Sources — traçabilité (NEJM RAG article Table 1) */}
+                  {m.role === 'assistant' && m.sources?.length > 0 && (
+                    <div className="flex flex-wrap gap-1 px-0.5">
+                      {m.sources.slice(0, 2).map(s => (
+                        <span key={s} className="text-[9px] px-1.5 py-0.5 rounded-full bg-nc-surface2
+                                                  border border-nc-border text-nc-muted truncate max-w-[140px]">
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
+
+            {/* Suggestions rapides */}
+            {showSuggest && messages.length <= 1 && !loading && (
+              <div className="space-y-1.5 animate-fade-in">
+                {QUICK_SUGGESTIONS.map(s => (
+                  <button
+                    key={s.label}
+                    onClick={() => handleSuggestion(s)}
+                    className="w-full text-left px-4 py-2.5 rounded-xl text-sm text-nc-muted
+                               bg-nc-surface2 border border-nc-border hover:border-nc-accent/40
+                               hover:text-nc-accent transition-all"
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {loading && (
               <div className="flex gap-2">
                 <div className="w-6 h-6 rounded-full flex items-center justify-center text-white shrink-0"
                      style={{ background: 'linear-gradient(135deg, rgb(var(--nc-accent)), rgb(var(--nc-accent)/0.6))' }}>
                   <Bot className="w-3 h-3" />
                 </div>
-                <div className="px-3 py-2 rounded-xl bg-nc-surface2 border border-nc-border">
+                <div className="px-3 py-2.5 rounded-xl bg-nc-surface2 border border-nc-border flex items-center gap-2">
                   <div className="flex gap-1">
                     {[0,1,2].map(i => (
-                      <div key={i} className="w-1.5 h-1.5 rounded-full bg-nc-muted animate-bounce"
+                      <div key={i} className="w-1.5 h-1.5 rounded-full bg-nc-accent/70 animate-bounce"
                            style={{ animationDelay: `${i * 0.15}s` }} />
                     ))}
                   </div>
+                  <span className="text-[10px] text-nc-muted">Analyse en cours…</span>
                 </div>
               </div>
             )}
@@ -568,29 +647,31 @@ function FloatingAssistant({ open, onToggle }) {
           </div>
 
           {/* Input */}
-          <div className="p-3 border-t border-nc-border shrink-0">
-            <div className="flex gap-2">
+          <div className="p-4 border-t border-nc-border shrink-0">
+            <div className="flex gap-2.5">
               <input
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
                 placeholder="Posez votre question…"
-                className="flex-1 bg-nc-surface2 border border-nc-border rounded-xl px-3 py-2 text-xs text-nc-text placeholder:text-nc-muted focus:outline-none focus:border-nc-accent/60 transition-colors"
+                className="flex-1 bg-nc-surface2 border border-nc-border rounded-xl px-4 py-2.5 text-sm
+                           text-nc-text placeholder:text-nc-muted focus:outline-none
+                           focus:border-nc-accent/60 transition-colors"
               />
               <button
                 onClick={() => send()}
                 disabled={!input.trim() || loading}
-                className="w-9 h-9 rounded-xl flex items-center justify-center text-white transition-all disabled:opacity-40"
+                className="w-10 h-10 rounded-xl flex items-center justify-center text-white transition-all disabled:opacity-40"
                 style={{ background: 'linear-gradient(135deg, rgb(var(--nc-accent)), rgb(var(--nc-accent)/0.7))' }}
               >
-                <Send className="w-3.5 h-3.5" />
+                <Send className="w-4 h-4" />
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Bouton flottant */}
+      {/* Bouton flottant — toujours visible */}
       <button
         onClick={onToggle}
         className="fixed bottom-6 end-6 z-50 w-14 h-14 rounded-2xl text-white shadow-glass-lg
@@ -598,7 +679,7 @@ function FloatingAssistant({ open, onToggle }) {
         style={{ background: open
           ? 'linear-gradient(135deg, rgb(var(--nc-accent)/0.7), rgb(var(--nc-accent)/0.5))'
           : 'linear-gradient(135deg, rgb(var(--nc-accent)), rgb(var(--nc-accent)/0.7))' }}
-        title="Assistant NeuroCap"
+        title="NeuroCoach — Assistant EEG"
       >
         {open ? <X className="w-5 h-5" /> : <MessageSquareText className="w-5 h-5" />}
       </button>
@@ -684,13 +765,8 @@ export default function DashboardPage() {
 
   // ── Main layout ──────────────────────────────────────────────────────────────
   return (
-    <div
-      className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8"
-      style={{
-        paddingRight: assistantOpen ? 'calc(364px + max(1.5rem, (100vw - 80rem) / 2))' : undefined,
-        transition: 'padding-right 0.3s ease',
-      }}
-    >
+    <div style={{ paddingRight: assistantOpen ? '568px' : '0', transition: 'padding-right 0.35s cubic-bezier(0.4,0,0.2,1)' }}>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
 
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-slide-up">
@@ -863,8 +939,8 @@ export default function DashboardPage() {
         </>
       )}
 
-      {/* Bouton flottant Assistant */}
-      <FloatingAssistant open={assistantOpen} onToggle={() => setAssistantOpen(o => !o)} />
+    </div>
+    <FloatingAssistant open={assistantOpen} onToggle={() => setAssistantOpen(o => !o)} />
     </div>
   )
 }

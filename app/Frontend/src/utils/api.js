@@ -98,6 +98,8 @@ export const assistant = {
       session_id: sessionId || undefined,
       eeg_context: eegContext || undefined,
     }).then(res => res.data),
+  explain: () =>
+    API.post('/assistant/explain').then(res => res.data),
   feedback: (messageIndex, feedback, question, answer) =>
     API.post('/assistant/feedback', { message_index: messageIndex, feedback, question, answer }),
 }

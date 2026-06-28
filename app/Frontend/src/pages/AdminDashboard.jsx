@@ -528,13 +528,13 @@ export default function AdminDashboard() {
           </div>
           <div className="space-y-3">
             {[
-              { label: 'Accuracy LOSO — concentration', value: '89.3%', color: 'bg-purple-400', pct: 89 },
-              { label: 'Accuracy LOSO — stress',        value: '86.7%', color: 'bg-blue-400',   pct: 87 },
-              { label: 'Latence moyenne classification', value: '124 ms', color: 'bg-green-400', pct: 75 },
-              { label: 'Taux confiance > 0.60',
-                value: `${stats?.engagement_rate ?? 78}%`,
+              { label: 'AUC LOSO — concentration (EEGNet DL)', value: '75.1%', color: 'bg-purple-400', pct: 75 },
+              { label: 'AUC LOSO — stress (EEGNet TL)',        value: '60.7%', color: 'bg-blue-400',   pct: 61 },
+              { label: 'Latence moyenne inférence',            value: '< 200 ms', color: 'bg-green-400', pct: 70 },
+              { label: 'Sessions avec score confiance > 0.60',
+                value: `${stats?.engagement_rate ?? 0}%`,
                 color: 'bg-nc-accent',
-                pct: stats?.engagement_rate ?? 78 },
+                pct: stats?.engagement_rate ?? 0 },
             ].map(({ label, value, color, pct }) => (
               <div key={label} className="space-y-1">
                 <div className="flex justify-between text-xs">
@@ -549,7 +549,7 @@ export default function AdminDashboard() {
           </div>
           <div className="flex items-center gap-2 pt-1 text-[11px] text-nc-muted border-t border-nc-border">
             <Cpu className="w-3.5 h-3.5 shrink-0" />
-            <span>LightGBM · 63 features · LOSO cross-validation · Fp2 · 250 Hz</span>
+            <span>EEGNet DL FULL (conc. AUC 0.751) &nbsp;·&nbsp; EEGNet TL FULL (stress AUC 0.607) &nbsp;·&nbsp; Fp2 · 250 Hz · régression 0–100</span>
           </div>
         </div>
 

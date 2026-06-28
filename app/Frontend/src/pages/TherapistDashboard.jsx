@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { therapist as therapistApi } from '../utils/api'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -416,6 +416,15 @@ function PatientTable({ patients }) {
 
 /* ── Main dashboard ───────────────────────────────────────────────────────── */
 export default function TherapistDashboard() {
+  const location = useLocation()
+  // /therapist → onglet patients ; /dashboard → vue d'ensemble
+  const [tab, setTab] = useState(location.pathname.startsWith('/therapist') ? 'patients' : 'overview')
+
+  // Synchronise l'onglet si l'URL change sans démonter le composant
+  useEffect(() => {
+    setTab(location.pathname.startsWith('/therapist') ? 'patients' : 'overview')
+  }, [location.pathname])
+
   const [patients, setPatients] = useState([])
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState('')
@@ -469,20 +478,52 @@ export default function TherapistDashboard() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
 
       {/* ── Header ── */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-nc-text">Tableau de bord thérapeute</h1>
+          <h1 className="text-2xl font-bold text-nc-text">
+            {tab === 'overview' ? 'Tableau de bord thérapeute' : 'Mes patients'}
+          </h1>
           <p className="text-sm text-nc-muted mt-0.5">
             {patients.length} patient(s) assigné(s) · dernière mise à jour {new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
           </p>
         </div>
-        <button
-          onClick={load}
-          className="btn-ghost p-2 rounded-xl text-nc-muted hover:text-nc-text"
-          title="Rafraîchir"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-        </button>
+
+        <div className="flex items-center gap-2">
+          {/* Onglets */}
+          <div className="flex items-center bg-nc-surface2 rounded-xl p-1 gap-1">
+            <button
+              onClick={() => setTab('overview')}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                tab === 'overview'
+                  ? 'bg-nc-accent text-white shadow-sm'
+                  : 'text-nc-muted hover:text-nc-text'
+              }`}
+            >
+              Vue d'ensemble
+            </button>
+            <button
+              onClick={() => setTab('patients')}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                tab === 'patients'
+                  ? 'bg-nc-accent text-white shadow-sm'
+                  : 'text-nc-muted hover:text-nc-text'
+              }`}
+            >
+              Mes patients
+              {patients.length > 0 && (
+                <span className="ms-1.5 text-[10px] font-bold opacity-80">{patients.length}</span>
+              )}
+            </button>
+          </div>
+
+          <button
+            onClick={load}
+            className="btn-ghost p-2 rounded-xl text-nc-muted hover:text-nc-text"
+            title="Rafraîchir"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
 
       {/* ── Error ── */}
@@ -499,6 +540,9 @@ export default function TherapistDashboard() {
         </div>
       ) : (
         <>
+          {/* ══════════════ VUE D'ENSEMBLE ══════════════ */}
+          {tab === 'overview' && (<>
+
           {/* ── KPI row ── */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             <KpiSimple
@@ -574,8 +618,13 @@ export default function TherapistDashboard() {
             </div>
           )}
 
-          {/* ── Main content: table + alerts ── */}
-          {patients.length === 0 ? (
+          </>)} {/* fin tab overview */}
+
+          {/* ══════════════ MES PATIENTS ══════════════ */}
+          {tab === 'patients' && (
+
+          /* ── Main content: table + alerts ── */
+          patients.length === 0 ? (
             <div className="card p-16 text-center">
               <Users className="w-14 h-14 mx-auto mb-4 opacity-20 text-nc-muted" />
               <p className="text-nc-text font-semibold text-lg">Aucun patient assigné</p>
@@ -629,7 +678,10 @@ export default function TherapistDashboard() {
                 )}
               </div>
             </div>
-          )}
+          )
+
+          )} {/* fin tab patients */}
+
         </>
       )}
     </div>

@@ -457,6 +457,76 @@ export default function FeaturesPanel({ features: f = {}, epochIdx }) {
                 </div>
               ))}
             </div>
+
+            {/* Section Modèles IA */}
+            <SectionGuide title="Modèles IA — NeuroCap" icon="🤖"
+              desc="Deux classifieurs spécialisés opèrent en parallèle sur le signal Fp2 monocanal.">
+              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+
+                {/* Modèle Concentration */}
+                <div style={{ borderRadius:10, background:'rgba(0,229,176,.06)',
+                              border:'1px solid rgba(0,229,176,.18)', padding:'12px 14px' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                    <span style={{ fontSize:16 }}>🎯</span>
+                    <div>
+                      <div style={{ fontSize:11, fontWeight:700, color:'#00e5b0' }}>Concentration</div>
+                      <div style={{ fontSize:9, color:T.bodyClr, marginTop:1 }}>
+                        EEGNet + Layer Replacement · Expérience B · TL inter-sujet
+                      </div>
+                    </div>
+                    <div style={{ marginLeft:'auto', display:'flex', gap:8 }}>
+                      {[['AUC','0.723'],['R²','0.250']].map(([k,v]) => (
+                        <div key={k} style={{ textAlign:'center' }}>
+                          <div style={{ fontSize:11, fontWeight:700, fontFamily:"'Space Mono',monospace", color:'#00e5b0' }}>{v}</div>
+                          <div style={{ fontSize:8, color:T.labelClr }}>{k} LOSO</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ fontSize:9, color:T.bodyClr, lineHeight:1.6 }}>
+                    <strong style={{ color:T.sectionLabelClr }}>Input :</strong>{' '}
+                    Signal brut filtré · 1 000 éch. @ 250 Hz · z-score par époque
+                    &nbsp;—&nbsp;
+                    <strong style={{ color:T.sectionLabelClr }}>Seuil :</strong>{' '}
+                    score &gt; 5,0 / 10 → concentré
+                  </div>
+                  <div style={{ fontSize:8, color:T.descClr, marginTop:4 }}>
+                    Dataset : CLA — 15 sujets, OpenBCI, 250 Hz, 4 niveaux de charge (Nirabi 2024)
+                  </div>
+                </div>
+
+                {/* Modèle Stress */}
+                <div style={{ borderRadius:10, background:'rgba(255,77,109,.06)',
+                              border:'1px solid rgba(255,77,109,.18)', padding:'12px 14px' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                    <span style={{ fontSize:16 }}>⚡</span>
+                    <div>
+                      <div style={{ fontSize:11, fontWeight:700, color:'#ff4d6d' }}>Stress</div>
+                      <div style={{ fontSize:9, color:T.bodyClr, marginTop:1 }}>
+                        Random Forest · 78 features feat78 SMOTE · ML inter-sujet
+                      </div>
+                    </div>
+                    <div style={{ marginLeft:'auto', display:'flex', gap:8 }}>
+                      {[['AUC','0.668'],['R²','0.184'],['MCC','0.318']].map(([k,v]) => (
+                        <div key={k} style={{ textAlign:'center' }}>
+                          <div style={{ fontSize:11, fontWeight:700, fontFamily:"'Space Mono',monospace", color:'#ff4d6d' }}>{v}</div>
+                          <div style={{ fontSize:8, color:T.labelClr }}>{k} LOSO</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ fontSize:9, color:T.bodyClr, lineHeight:1.6 }}>
+                    <strong style={{ color:T.sectionLabelClr }}>78 features :</strong>{' '}
+                    PSD Welch (5) · Ratios cognitifs (5) · Hjorth + temporel (6) · DWT db4 (20) ·
+                    Statistiques (20) · Entropies non-linéaires (7) · Transitions (6) · NeuroFeat (9)
+                  </div>
+                  <div style={{ fontSize:8, color:T.descClr, marginTop:4 }}>
+                    Dataset : SAM40 — 40 sujets, EMOTIV, 128 Hz → 250 Hz, CC BY 4.0 (Ghosh 2021)
+                  </div>
+                </div>
+
+              </div>
+            </SectionGuide>
           </>
         )}
 

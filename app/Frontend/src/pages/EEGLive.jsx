@@ -35,66 +35,131 @@ const REJECT_REASON = {
   emg_broadband:  'EMG large bande',
 }
 
-/* ── Carte ML Classifier (LightGBM) ──────────────────────────────────────────── */
-function MLClassifierCard({ prediction }) {
+/* ── Carte Dual Classifier (EEGNet+LR · RF+feat78) ──────────────────────────── */
+function DualClassifierCard({ prediction }) {
   if (!prediction) {
     return (
-      <div className="card p-5 flex flex-col items-center justify-center gap-3 text-center min-h-[160px]">
+      <div className="card p-5 flex flex-col items-center justify-center gap-3 text-center min-h-[180px]">
         <Brain className="w-8 h-8 text-nc-muted/30" />
         <div>
           <p className="text-xs text-nc-muted">En attente de la première époque…</p>
-          <p className="text-[10px] text-nc-muted/50 mt-0.5">63 features FeatEng · LightGBM LOSO</p>
+          <p className="text-[10px] text-nc-muted/50 mt-1">EEGNet+LR/B (conc) · RF+feat78 (stress)</p>
         </div>
       </div>
     )
   }
 
-  const isUncertain = prediction.uncertain
-  const state   = isUncertain ? 'uncertain' : prediction.state
-  const conf    = Math.round((prediction.confidence    ?? 0) * 100)
-  const concPct = Math.round((prediction.concentration ?? 0) * 100)
-  const stPct   = Math.round((prediction.stress        ?? 0) * 100)
+  const conc   = prediction.concentration ?? {}
+  const stress = prediction.stress        ?? {}
+  const dominant = prediction.dominant ?? prediction.state ?? 'neutral'
 
-  const STYLES = {
-    concentration: { label: '🎯 CONCENTRATION', color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/25', bar: 'bg-emerald-500' },
-    stress:        { label: '⚡ STRESS',          color: 'text-red-400',     bg: 'bg-red-500/10',     border: 'border-red-500/25',     bar: 'bg-red-500'     },
-    uncertain:     { label: '⚠ INCERTAIN',        color: 'text-yellow-400',  bg: 'bg-yellow-500/10',  border: 'border-yellow-500/25',  bar: 'bg-yellow-500'  },
+  const concScore  = conc.score  ?? 0
+  const stressScore = stress.score ?? 0
+  const concPct    = Math.round((conc.pct  ?? concScore  * 10))
+  const stressPct  = Math.round((stress.pct ?? stressScore * 10))
+
+  const isConcActive   = concScore  >= 5.0
+  const isStressActive = stressScore >= 5.0
+
+  const DOMINANT_STYLES = {
+    concentration: { label: '🎯 CONCENTRATION', color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/25' },
+    stress:        { label: '⚡ STRESS',          color: 'text-red-400',     bg: 'bg-red-500/10',     border: 'border-red-500/25'     },
+    neutral:       { label: '😌 NEUTRE',           color: 'text-nc-muted',    bg: 'bg-nc-surface2',    border: 'border-nc-border'      },
   }
-  const st = STYLES[state] ?? STYLES.uncertain
+  const dom = DOMINANT_STYLES[dominant] ?? DOMINANT_STYLES.neutral
+
+  const MetricBadge = ({ label, value }) => (
+    <span className="text-[8px] font-mono text-nc-muted/60">{label}={value}</span>
+  )
+
+  const ScoreBar = ({ label, score, pct, active, color, model, metrics }) => (
+    <div className={`rounded-xl p-3 border transition-all ${
+      active
+        ? color === 'emerald'
+          ? 'bg-emerald-500/10 border-emerald-500/30'
+          : 'bg-red-500/10 border-red-500/30'
+        : 'bg-nc-surface2/50 border-nc-border'
+    }`}>
+      <div className="flex items-center justify-between mb-1.5">
+        <div>
+          <span className={`text-[10px] font-bold uppercase tracking-wide ${
+            active
+              ? color === 'emerald' ? 'text-emerald-400' : 'text-red-400'
+              : 'text-nc-muted'
+          }`}>{label}</span>
+          <div className="flex gap-2 mt-0.5">
+            <span className="text-[8px] font-mono text-nc-muted/50">{model}</span>
+            {Object.entries(metrics).map(([k, v]) => (
+              <MetricBadge key={k} label={k.toUpperCase()} value={v} />
+            ))}
+          </div>
+        </div>
+        <span className={`font-mono font-bold text-2xl ${
+          active
+            ? color === 'emerald' ? 'text-emerald-400' : 'text-red-400'
+            : 'text-nc-muted'
+        }`}>{Math.round(pct)}<span className="text-sm font-normal ml-0.5">%</span></span>
+      </div>
+      <div className="h-2.5 rounded-full bg-nc-surface overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${
+            active
+              ? color === 'emerald' ? 'bg-emerald-500' : 'bg-red-500'
+              : 'bg-nc-muted/30'
+          }`}
+          style={{ width: `${Math.min(pct, 100)}%` }}
+        />
+      </div>
+      <div className="flex justify-between mt-1">
+        <span className="text-[8px] text-nc-muted/50">0%</span>
+        <span className="text-[8px] text-nc-muted/50">⬆ seuil 50%</span>
+        <span className="text-[8px] text-nc-muted/50">100%</span>
+      </div>
+    </div>
+  )
 
   return (
-    <div className={`card p-5 space-y-4 border ${st.border} ${st.bg}`}>
+    <div className={`card p-4 space-y-3 border ${dom.border} ${dom.bg}`}>
+      {/* En-tête */}
       <div className="flex items-center justify-between">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-nc-muted">LightGBM · FeatEng</p>
-        <span className="text-[10px] font-mono text-nc-muted">63 features</span>
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-nc-muted">
+            Dual IA · Fp2 monocanal
+          </p>
+          <p className="text-[8px] text-nc-muted/40 mt-0.5">LOSO inter-sujet · seuil 50 %</p>
+        </div>
+        <span className={`text-xs font-bold ${dom.color}`}>{dom.label}</span>
       </div>
 
-      <div className="flex items-center justify-between">
-        <span className={`text-sm font-bold ${st.color}`}>{st.label}</span>
-        <span className={`font-mono font-bold text-2xl ${st.color}`}>{conf}%</span>
-      </div>
+      {/* Score Concentration — EEGNet+LR */}
+      <ScoreBar
+        label="Concentration"
+        score={concScore}
+        pct={concPct}
+        active={isConcActive}
+        color="emerald"
+        model="EEGNet+LR/B"
+        metrics={{ AUC: (conc.auc ?? 0.723).toFixed(3), "R²": (conc.r2 ?? 0.250).toFixed(3) }}
+      />
 
-      {/* Barres probabilité */}
-      <div className="space-y-2">
-        {[
-          { label: 'Concentration', pct: concPct, bar: 'bg-emerald-500' },
-          { label: 'Stress',        pct: stPct,   bar: 'bg-red-500'     },
-        ].map(({ label, pct, bar }) => (
-          <div key={label}>
-            <div className="flex justify-between text-[10px] mb-0.5">
-              <span className="text-nc-muted">{label}</span>
-              <span className="font-mono font-semibold text-nc-text">{pct}%</span>
-            </div>
-            <div className="h-1.5 rounded-full bg-nc-surface2 overflow-hidden">
-              <div className={`h-full rounded-full ${bar} transition-all duration-500`} style={{ width: `${pct}%` }} />
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* Score Stress — RF feat78 */}
+      <ScoreBar
+        label="Stress"
+        score={stressScore}
+        pct={stressPct}
+        active={isStressActive}
+        color="red"
+        model="RF+feat78"
+        metrics={{
+          AUC: (stress.auc ?? 0.668).toFixed(3),
+          "R²":  (stress.r2  ?? 0.184).toFixed(3),
+          MCC: (stress.mcc ?? 0.318).toFixed(3),
+        }}
+      />
 
-      {isUncertain && (
-        <div className="p-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-[10px] text-yellow-300">
-          ⚠ Confiance {conf}% {'<'} 60% — époque incertaine (CdC §2.5.1)
+      {prediction.uncertain && (
+        <div className="p-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-[9px] text-yellow-300">
+          ⚠ Un ou plusieurs modèles en erreur — résultat non fiable
         </div>
       )}
     </div>
@@ -538,7 +603,7 @@ export default function EEGLive({ embedded = false }) {
             <div className="lg:col-span-2 card overflow-hidden p-2" style={{ height: 310 }}>
               <SignalCanvas wsData={eegFrame} electrodeOk={electrodeOk} cognitiveState={cognitiveState} />
             </div>
-            <MLClassifierCard prediction={mlPrediction} />
+            <DualClassifierCard prediction={mlPrediction} />
           </div>
 
           {/* ── Carte de lancement Neurofeedback ── */}
@@ -733,8 +798,8 @@ export default function EEGLive({ embedded = false }) {
 
           {/* ML card dans features */}
           <div className="card p-5">
-            <h3 className="text-sm font-semibold text-nc-text mb-4">Classification LightGBM</h3>
-            <MLClassifierCard prediction={mlPrediction} />
+            <h3 className="text-sm font-semibold text-nc-text mb-4">Prédiction EEGNet (DL/TL)</h3>
+            <DualClassifierCard prediction={mlPrediction} />
           </div>
         </div>
       )}
@@ -900,8 +965,8 @@ export default function EEGLive({ embedded = false }) {
           {/* Dernière classification ML */}
           {mlPrediction && (
             <div className="card p-5">
-              <h3 className="text-sm font-semibold text-nc-text mb-4">Dernière classification LightGBM</h3>
-              <MLClassifierCard prediction={mlPrediction} />
+              <h3 className="text-sm font-semibold text-nc-text mb-4">Dernière prédiction EEGNet (DL/TL)</h3>
+              <DualClassifierCard prediction={mlPrediction} />
             </div>
           )}
 

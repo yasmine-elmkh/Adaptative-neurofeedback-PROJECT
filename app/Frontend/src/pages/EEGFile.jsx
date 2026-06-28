@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Upload, FileText, ArrowLeft, AlertTriangle,
   CheckCircle2, ChevronLeft, ChevronRight, RefreshCw,
-  HelpCircle, Sparkles,
+  HelpCircle, Sparkles, Download, Activity,
 } from 'lucide-react'
 import { eeg as eegApi } from '../utils/api'
 
@@ -17,39 +17,96 @@ const ML_STATE = {
     label: 'Stress', color: 'text-red-400',
     bg: 'bg-red-500/10', border: 'border-red-500/25', icon: '⚡',
   },
+  neutral: {
+    label: 'Neutre', color: 'text-blue-400',
+    bg: 'bg-blue-500/10', border: 'border-blue-500/25', icon: '〜',
+  },
   uncertain: {
     label: 'Incertain', color: 'text-yellow-400',
     bg: 'bg-yellow-500/10', border: 'border-yellow-500/25', icon: '⚠',
   },
 }
 
+const QUALITY_META = {
+  bonne:    { label: 'Signal bon',     color: 'text-emerald-400', dot: 'bg-emerald-400' },
+  moyenne:  { label: 'Signal moyen',   color: 'text-yellow-400',  dot: 'bg-yellow-400'  },
+  mauvaise: { label: 'Signal faible',  color: 'text-red-400',     dot: 'bg-red-400'     },
+}
+
 const PAGE_SIZE = 25
 
+/* ── Export JSON ── */
+function exportJSON(result) {
+  const payload = {
+    filename:       result.filename,
+    duration_s:     result.duration_s,
+    fs:             result.fs,
+    signal_quality: result.signal_quality,
+    n_epochs_total:    result.n_epochs_total,
+    n_epochs_accepted: result.n_epochs_accepted,
+    summary:        result.summary,
+    exported_at:    new Date().toISOString(),
+  }
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href     = url
+  a.download = `neurocap_${result.filename?.replace(/\.[^.]+$/, '') ?? 'eeg'}_${Date.now()}.json`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 /* ── Résumé ML ── */
-function MLSummaryCard({ summary, filename, duration_s, n_epochs_total, n_epochs_accepted, fs }) {
-  const dom = ML_STATE[summary.dominant_state] ?? ML_STATE.uncertain
+function MLSummaryCard({ summary, filename, duration_s, n_epochs_total, n_epochs_accepted, fs, signal_quality }) {
+  const dom     = ML_STATE[summary.dominant_state] ?? ML_STATE.uncertain
   const confPct = Math.round((summary.mean_confidence ?? 0) * 100)
+  const qMeta   = QUALITY_META[signal_quality] ?? QUALITY_META.moyenne
+
+  const bars = [
+    {
+      label: 'Concentration',
+      sub:   'EEGNet DL FULL · AUC 0,751 ✓',
+      pct:   Math.min((summary.mean_conc_score   ?? 0) * 10, 100),
+      color: 'bg-emerald-500',
+    },
+    {
+      label: 'Stress',
+      sub:   'EEGNet_LR TL FULL · AUC 0,607 ⚠',
+      pct:   Math.min((summary.mean_stress_score ?? 0) * 10, 100),
+      color: 'bg-orange-500',
+    },
+  ]
 
   return (
     <div className="card p-6 space-y-5">
+      {/* En-tête */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-lg font-bold text-nc-text">Résultat d'analyse</h2>
           <p className="text-xs text-nc-muted font-mono mt-0.5 truncate max-w-sm">{filename}</p>
         </div>
-        <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-bold border
-                         ${dom.bg} ${dom.color} ${dom.border}`}>
-          {dom.icon} État dominant : {dom.label}
-        </span>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Qualité signal */}
+          <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium
+                            border border-current/20 bg-current/5 ${qMeta.color}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${qMeta.dot}`} />
+            {qMeta.label}
+          </span>
+          {/* État dominant */}
+          <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-bold border
+                           ${dom.bg} ${dom.color} ${dom.border}`}>
+            {dom.icon} État dominant : {dom.label}
+          </span>
+        </div>
       </div>
 
       {/* Stats rapides */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: 'Durée',          value: `${Math.round(duration_s)}s`,         sub: `${fs} Hz` },
-          { label: 'Époques totales', value: n_epochs_total,                      sub: `${n_epochs_accepted} acceptées` },
-          { label: 'Classifiées',    value: summary.n_classified ?? 0,            sub: 'époques ML' },
-          { label: 'Confiance moy.', value: `${confPct}%`,                        sub: 'LightGBM LOSO' },
+          { label: 'Durée',           value: `${Math.round(duration_s)}s`, sub: `${fs} Hz` },
+          { label: 'Époques totales', value: n_epochs_total,               sub: `${n_epochs_accepted} acceptées` },
+          { label: 'Classifiées',     value: summary.n_classified ?? 0,   sub: 'époques IA' },
+          { label: 'Confiance moy.',  value: `${confPct}%`,               sub: 'Classifieur IA' },
         ].map(({ label, value, sub }) => (
           <div key={label} className="p-3 rounded-xl bg-nc-surface2 text-center">
             <p className="text-xl font-bold font-mono text-nc-text">{value}</p>
@@ -59,33 +116,65 @@ function MLSummaryCard({ summary, filename, duration_s, n_epochs_total, n_epochs
         ))}
       </div>
 
-      {/* Barres de probabilité */}
-      <div className="space-y-3">
-        {[
-          { label: 'Concentration', pct: summary.concentration_pct ?? 0, color: 'bg-emerald-500' },
-          { label: 'Stress',        pct: summary.stress_pct        ?? 0, color: 'bg-red-500'     },
-          { label: 'Incertain',     pct: summary.uncertain_pct     ?? 0, color: 'bg-yellow-500'  },
-        ].map(({ label, pct, color }) => (
-          <div key={label}>
+      {/* Barres scores IA — les DEUX modèles toujours visibles */}
+      <div className="space-y-1">
+        <p className="text-[10px] text-nc-muted/60 uppercase tracking-widest font-semibold mb-3">
+          Scores modèles IA — 50 % = seuil de décision
+        </p>
+        {bars.map(({ label, sub, pct, color }) => (
+          <div key={label} className="mb-3">
             <div className="flex justify-between text-xs mb-1">
-              <span className="text-nc-muted">{label}</span>
+              <span className="text-nc-muted font-medium">{label}
+                <span className="ml-2 text-nc-muted/50 font-normal text-[10px]">{sub}</span>
+              </span>
               <span className="font-mono font-semibold text-nc-text">{Math.round(pct)}%</span>
             </div>
-            <div className="h-2 rounded-full bg-nc-surface2 overflow-hidden">
+            <div className="relative h-2.5 rounded-full bg-nc-surface2 overflow-hidden">
               <div
                 className={`h-full rounded-full ${color} transition-all duration-700`}
                 style={{ width: `${pct}%` }}
               />
+              {/* Marqueur seuil 50% */}
+              <div className="absolute top-0 bottom-0 w-px bg-nc-muted/30" style={{ left: '50%' }} />
             </div>
           </div>
         ))}
       </div>
 
-      {/* Avertissement si faible confiance */}
+      {/* Badges modèles — CdC §4.5 */}
+      <div className="flex gap-2 flex-wrap items-center">
+        <span className="text-[10px] text-nc-muted/60">Modèles IA actifs :</span>
+        {[
+          { name: 'EEGNet/conc (DL FULL)',    auc: '0.751', score: 'S=0,789', ok: (summary.mean_conc_score   ?? 0) > 0, warn: false },
+          { name: 'EEGNet_LR/stress (TL FULL)', auc: '0.607', score: 'S=0,525', ok: (summary.mean_stress_score ?? 0) > 0, warn: true  },
+        ].map(m => (
+          <span key={m.name}
+            className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono border
+                        ${m.ok
+                          ? (m.warn
+                              ? 'bg-yellow-500/5 border-yellow-500/20 text-yellow-400'
+                              : 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400')
+                          : 'bg-red-500/5 border-red-500/20 text-red-400'}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${m.ok ? (m.warn ? 'bg-yellow-400' : 'bg-emerald-400') : 'bg-red-400'}`} />
+            {m.name} · AUC {m.auc} · {m.score}
+          </span>
+        ))}
+      </div>
+
+      {/* Réserve clinique stress — affichage obligatoire (CdC §4.5.2) */}
+      <div className="p-3 rounded-xl bg-orange-500/8 border border-orange-500/20 flex items-start gap-2 text-xs text-orange-300">
+        <HelpCircle className="w-4 h-4 shrink-0 mt-0.5" />
+        <span>
+          <strong>Indicateur orientatif (stress) —</strong> La mesure du stress par EEG frontal seul (Fp2)
+          n'est pas cliniquement validée. AUC = 0,607, R² = −0,052. Ne pas utiliser pour une décision thérapeutique.
+        </span>
+      </div>
+
+      {/* Alerte faible confiance */}
       {confPct < 60 && (
         <div className="p-3 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex items-start gap-2 text-xs text-yellow-300">
           <HelpCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>Confiance moyenne faible ({confPct}%). Signal court ou bruit élevé — vérifiez la qualité du fichier.</span>
+          <span>Confiance moyenne faible ({confPct} %). Signal court ou bruité — résultats indicatifs.</span>
         </div>
       )}
     </div>
@@ -147,10 +236,10 @@ function EpochTable({ epochs }) {
                     </div>
                   </td>
                   <td className="px-3 py-2 font-mono text-emerald-400">
-                    {Math.round((pred.concentration ?? 0) * 100)}%
+                    {Math.round(pred.concentration?.pct ?? 0)}%
                   </td>
                   <td className="px-3 py-2 font-mono text-red-400">
-                    {Math.round((pred.stress ?? 0) * 100)}%
+                    {Math.round(pred.stress?.pct ?? 0)}%
                   </td>
                   <td className="px-3 py-2 font-mono text-nc-muted">
                     {ep.amplitude_uv?.toFixed(1) ?? '—'}
@@ -224,7 +313,7 @@ export default function EEGFile() {
     setProgress(`Lecture de ${file.name}…`)
 
     try {
-      setProgress('Pipeline DSP v8.0 + Golden Filter + LightGBM en cours…')
+      setProgress('Pipeline DSP v8.0 + Golden Filter + Classification IA en cours…')
       const data = await eegApi.analyzeFile(file)
       setResult(data)
       // Sauvegarde automatique — visible au thérapeute sans action patient
@@ -237,8 +326,8 @@ export default function EEGFile() {
           n_epochs_accepted: data.n_epochs_accepted,
           n_epochs_rejected: (data.n_epochs_total ?? 0) - (data.n_epochs_accepted ?? 0),
           dominant_state:    s.dominant_state,
-          concentration_pct: s.concentration_pct,
-          stress_pct:        s.stress_pct,
+          concentration_pct: s.mean_conc_score   != null ? parseFloat((s.mean_conc_score   * 10).toFixed(1)) : s.concentration_pct,
+          stress_pct:        s.mean_stress_score  != null ? parseFloat((s.mean_stress_score * 10).toFixed(1)) : s.stress_pct,
           uncertain_pct:     s.uncertain_pct,
           mean_confidence:   s.mean_confidence,
           states_json:       {},
@@ -281,7 +370,7 @@ export default function EEGFile() {
         </div>
         <div>
           <h1 className="text-2xl font-bold text-nc-text">Analyse de fichier EEG</h1>
-          <p className="text-sm text-nc-muted">EDF · CSV · TXT — Classification LightGBM 63 features</p>
+          <p className="text-sm text-nc-muted">EDF · CSV · TXT — Analyse DSP + Classification IA</p>
         </div>
       </div>
 
@@ -360,14 +449,14 @@ export default function EEGFile() {
             <p className="text-sm font-semibold text-nc-text">Analyse en cours…</p>
             <p className="text-xs text-nc-muted mt-1">{progress}</p>
           </div>
-          <div className="flex justify-center gap-3 text-[10px] text-nc-muted/60">
+          <div className="flex justify-center gap-3 text-[10px] text-nc-muted/60 flex-wrap">
             <span>Golden Filter 1–45 Hz</span>
             <span>·</span>
-            <span>Z-score epochs</span>
+            <span>Z-score époques</span>
             <span>·</span>
-            <span>63 features FeatEng</span>
+            <span>EEGNet Concentration (AUC 0,751)</span>
             <span>·</span>
-            <span>LightGBM LOSO</span>
+            <span>EEGNet_LR Stress (AUC 0,607)</span>
           </div>
         </div>
       )}
@@ -417,6 +506,13 @@ export default function EEGFile() {
                 <Sparkles className="w-3.5 h-3.5" /> Obtenir un feedback adapté
               </button>
               <button
+                onClick={() => exportJSON(result)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs text-nc-muted
+                           hover:text-nc-text border border-nc-border hover:bg-nc-surface2 transition-colors"
+              >
+                <Download className="w-3.5 h-3.5" /> Exporter JSON
+              </button>
+              <button
                 onClick={() => { setResult(null); setError(''); setSaved(false) }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs text-nc-muted
                            hover:text-nc-text border border-nc-border hover:bg-nc-surface2 transition-colors"
@@ -440,6 +536,7 @@ export default function EEGFile() {
             n_epochs_total={result.n_epochs_total}
             n_epochs_accepted={result.n_epochs_accepted}
             fs={result.fs}
+            signal_quality={result.signal_quality ?? 'moyenne'}
           />
 
           {/* ── Carte CTA Neurofeedback ── */}
