@@ -1,47 +1,38 @@
 """
-NeuroCap – Test Suite Deep Learning (19 architectures)
-=======================================================
-Évalue chaque architecture DL avec DEUX sources de métriques :
+NeuroCap – Test Suite Deep Learning Régression (19 architectures)
+==================================================================
+Évalue chaque architecture DL sur DEUX sources :
 
-  1. LOSO (Leave-One-Subject-Out) — ÉVALUATION HONNÊTE
-     Lit les metrics.json LOSO sauvegardés pendant l'entraînement.
-     Garantit qu'aucun sujet n'est partagé entre train et test.
-     → Métriques à utiliser pour la décision finale.
+  1. Métriques sauvegardées (metrics.json) — lues depuis reports/Regression/DL/
+     • Expériences A/B/C/D/FULL  → métriques sur X_test (holdout par sujet)
+     • LOSO                      → métriques LOSO par target
 
-  2. Holdout X_test.npy — ÉVALUATION BRUTE (pour information seulement)
-     Détecte si les sujets du test se retrouvent dans le train.
-     Si fuite détectée → scores marqués [LEAKED] et NON utilisés
-     pour le classement.
+  2. Évaluation directe sur X_test.npy (holdout)
+     • Charge le meilleur .pt   → models/Regression/DL/{model}/{target}/
+     • Prédit scores continus   → MAE, RMSE, R², AUC-ROC, F1-macro
+     • AUCUN softmax — sortie scalaire (régression)
 
-Pourquoi les scores parfaits (F1=1.00) sont suspects ?
-  Le fichier X_test.npy est généralement créé par split ALÉATOIRE
-  d'époques, sans respecter les frontières de sujets. Des époques
-  du même sujet se retrouvent en train ET en test. Le modèle a alors
-  appris les patterns EEG propres à chaque sujet (signature personnelle),
-  rendant la classification triviale. Ce n'est PAS une vraie performance.
+Deux targets évalués séparément : conc et stress.
 
 Usage :
-    cd EEG_project
-    python Tests/test_deep_learning.py          # tous les modèles
-    python Tests/test_deep_learning.py CNN1D    # un seul modèle
+    python Tests/test_deep_learning.py            # tous les modèles
+    python Tests/test_deep_learning.py CNN1D      # un seul modèle
+    python Tests/test_deep_learning.py CNN1D conc # modèle + target
 
 Sorties :
     reports/Tests/deep_learning/
-        ├── results_table_LOSO.csv       ← classement honnête
-        ├── results_table_holdout.csv    ← pour information
-        ├── ranking_barplot_LOSO.png
-        ├── heatmap_metrics_LOSO.png
-        ├── radar_top5_LOSO.png
-        ├── leakage_report.txt
+        ├── results_conc.csv / results_stress.csv
+        ├── ranking_conc.png / ranking_stress.png
+        ├── heatmap_conc.png / heatmap_stress.png
+        ├── loso_summary.csv
         └── decision_report.txt
 """
 
 import sys
-import importlib
-import importlib.util
-import warnings
 import json
 import time
+import importlib.util
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -51,32 +42,27 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
-from sklearn.metrics import (
-    accuracy_score, f1_score, precision_score, recall_score,
-    roc_auc_score, confusion_matrix,
-)
+from sklearn.metrics import roc_auc_score, f1_score
 
 warnings.filterwarnings('ignore')
-plt.style.use('seaborn-v0_8-whitegrid')
 
-# ============================================================================
-# CHEMINS
-# ============================================================================
+# ─── Chemins ──────────────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ARCH_DIR     = PROJECT_ROOT / 'src' / 'models' / 'deep_learning' / 'architectures'
 DL_UTILS_DIR = PROJECT_ROOT / 'src' / 'models' / 'deep_learning'
-DATA_DIR     = PROJECT_ROOT / 'data' / 'Augmentation' / 'datasets_augmented'
-MODEL_BASE   = PROJECT_ROOT / 'models' / 'deep_learning' / 'DL_models'
-DL_OUTPUTS   = PROJECT_ROOT / 'reports' / 'deep_learning' / 'DL_outputs'
+DATA_DIR     = PROJECT_ROOT / 'data' / 'Regression' / 'augmented'
+DL_OUTPUTS   = PROJECT_ROOT / 'reports' / 'Regression' / 'DL'
+MODEL_BASE   = PROJECT_ROOT / 'models' / 'Regression' / 'DL'
 REPORT_DIR   = PROJECT_ROOT / 'reports' / 'Tests' / 'deep_learning'
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-EXP_PRIORITY = ['FULL', 'D', 'C', 'B', 'A']
 
-# ============================================================================
-# MAPPING architecture
-# ============================================================================
+TARGETS     = ['conc', 'stress']
+EXPERIMENTS = ['A', 'B', 'C', 'D', 'FULL']
+SCORE_THR   = 5.0
+
+# ─── Mapping fichier → classe ──────────────────────────────────────────────
 ARCH_MAP = {
     'CNN1D':        ('CNN1D',      'CNN1D'),
     'CNN2D':        ('CNN2D',      'CNN2D'),
@@ -87,138 +73,58 @@ ARCH_MAP = {
     'CNN_GRU_Att':  ('CNN_GRU',    'CNN_GRU_Att'),
     'LSTM_1L':      ('LSTM1L',     'LSTM_1L'),
     'LSTM_2L':      ('LSTM2L',     'LSTM_2L'),
+    'LSTM_Att':     ('LSTM_ATT',   'LSTM_Att'),
     'BiLSTM_1L':    ('BILSTM1L',   'BiLSTM_1L'),
     'BiLSTM_2L':    ('BILSTM2L',   'BiLSTM_2L'),
+    'BiLSTM_Att':   ('BILSTM_ATT', 'BiLSTM_Att'),
     'GRU_1L':       ('GRU1L',      'GRU_1L'),
     'GRU_2L':       ('GRU2L',      'GRU_2L'),
+    'GRU_Att':      ('GRU_ATT',    'GRU_Att'),
     'BiGRU_1L':     ('BIGRU1L',    'BiGRU_1L'),
     'BiGRU_2L':     ('BIGRU2L',    'BiGRU_2L'),
-    'LSTM_Att':     ('LSTM_ATT',   'LSTM_Att'),
-    'BiLSTM_Att':   ('BILSTM_ATT', 'BiLSTM_Att'),
-    'GRU_Att':      ('GRU_ATT',    'GRU_Att'),
     'BiGRU_Att':    ('BIGRU_ATT',  'BiGRU_Att'),
 }
 ALL_MODELS = list(ARCH_MAP.keys())
 
 
-# ============================================================================
-# 1. VÉRIFICATION FUITE DE DONNÉES
-# ============================================================================
-def check_holdout_leakage():
-    """
-    Vérifie si les sujets du fichier X_test.npy se retrouvent
-    aussi dans X_train_{exp}.npy.
-    Retourne un dict avec has_leakage, overlap_subjects, message.
-    """
-    result = {
-        'has_leakage': None,
-        'overlap_subjects': [],
-        'train_subjects': [],
-        'test_subjects': [],
-        'message': '',
-        'sid_test_found': False,
-    }
-
-    # Cherche subject_ids_test.npy
-    test_sid_path = DATA_DIR / 'subject_ids_test.npy'
-    if not test_sid_path.exists():
-        result['message'] = (
-            "subject_ids_test.npy introuvable → "
-            "impossible de vérifier la fuite automatiquement.\n"
-            "Les scores parfaits (F1≈1.0) sont très suspects en EEG et\n"
-            "indiquent probablement un split d'époques sans séparation par sujet."
-        )
-        result['has_leakage'] = None
-        return result
-
-    result['sid_test_found'] = True
-    sids_test = set(np.load(test_sid_path).flatten())
-    result['test_subjects'] = sorted(sids_test)
-
-    # Cherche au moins un fichier subject_ids_train
-    train_sids = set()
-    for exp in EXP_PRIORITY:
-        for fname in [f'subject_ids_train_{exp}.npy', 'subject_ids_train.npy']:
-            p = DATA_DIR / fname
-            if p.exists():
-                train_sids = set(np.load(p).flatten())
-                break
-        if train_sids:
-            break
-
-    if not train_sids:
-        result['message'] = "subject_ids_train_*.npy introuvable"
-        return result
-
-    result['train_subjects'] = sorted(train_sids)
-    overlap = sids_test & train_sids
-    result['overlap_subjects'] = sorted(overlap)
-    result['has_leakage'] = len(overlap) > 0
-
-    if result['has_leakage']:
-        result['message'] = (
-            f"FUITE INTRA-SUJET DÉTECTÉE !\n"
-            f"  {len(overlap)} sujet(s) partagé(s) entre train et test : {sorted(overlap)}\n"
-            f"  Les scores sur X_test.npy sont INVALIDES pour évaluer la généralisation."
-        )
-    else:
-        result['message'] = (
-            f"Pas de fuite détectée (sujets train/test disjoints).\n"
-            f"  {len(sids_test)} sujets de test, {len(train_sids)} sujets d'entraînement."
-        )
-    return result
+# ─── Chargement métriques sauvegardées ────────────────────────────────────
+def load_saved_metrics(model: str, target: str, exp: str):
+    """Lit metrics.json sauvegardé pendant l'entraînement."""
+    p = DL_OUTPUTS / model / target / exp / 'metrics.json'
+    if not p.exists():
+        return None
+    with open(p) as f:
+        return json.load(f)
 
 
-# ============================================================================
-# 2. LECTURE DES MÉTRIQUES LOSO (sauvegardées pendant l'entraînement)
-# ============================================================================
-def load_loso_metrics(model_name: str):
-    """
-    Lit le fichier LOSO_exp_A/metrics.json sauvegardé pendant l'entraînement.
-    C'est l'évaluation HONNÊTE (aucun sujet partagé train/test).
-    Retourne (dict métriques, None) ou (None, message d'erreur).
-    """
-    loso_path = DL_OUTPUTS / model_name / 'LOSO_exp_A' / 'metrics.json'
-    if not loso_path.exists():
-        return None, f"LOSO_exp_A/metrics.json introuvable pour {model_name}"
-    with open(loso_path) as f:
-        m = json.load(f)
-    return m, None
+def load_loso_metrics(model: str, target: str):
+    """Lit metrics.json LOSO."""
+    p = DL_OUTPUTS / model / target / 'LOSO' / 'metrics.json'
+    if not p.exists():
+        return None
+    with open(p) as f:
+        return json.load(f)
 
 
-def extract_loso_row(model_name: str, raw: dict):
-    """Extrait les colonnes pertinentes du dict LOSO brut."""
-    return {
-        'model':          model_name,
-        'eval_type':      'LOSO (honnête)',
-        'exp_used':       raw.get('exp', 'A'),
-        'accuracy':       raw.get('accuracy', 0),
-        'f1_macro':       raw.get('f1_macro',  0),
-        'f1_binary':      raw.get('f1', 0),
-        'precision':      raw.get('precision', 0),
-        'recall':         raw.get('recall', 0),
-        'specificity':    raw.get('specificity', 0),
-        'auc':            raw.get('auc', 0.5),
-        'pct_uncertain':  raw.get('pct_uncertain', 0),
-        'n_folds':        raw.get('n_folds', 0),
-        'overfitting_folds': raw.get('overfitting_folds', 0),
-        'train_time_sec': raw.get('train_time_sec', 0),
-        'inference_ms':   0,
-        'avg_conc_rate':  raw.get('rates', {}).get('avg_concentration_rate', 0),
-        'avg_stress_rate':raw.get('rates', {}).get('avg_stress_rate', 0),
-        'source':         'loso_saved',
-    }
+def best_saved_metrics(model: str, target: str):
+    """Retourne les métriques de la meilleure expérience (plus petit MAE)."""
+    best_m, best_exp = None, None
+    for exp in EXPERIMENTS:
+        m = load_saved_metrics(model, target, exp)
+        if m is None:
+            continue
+        if best_m is None or m.get('mae', 99) < best_m.get('mae', 99):
+            best_m, best_exp = m, exp
+    return best_m, best_exp
 
 
-# ============================================================================
-# 3. ÉVALUATION SUR HOLDOUT (X_test.npy) — pour information seulement
-# ============================================================================
+# ─── Chargement modèle + inférence ────────────────────────────────────────
 _arch_cache = {}
 
-def import_arch_class(model_name: str):
-    if model_name in _arch_cache:
-        return _arch_cache[model_name]
-    file_stem, class_name = ARCH_MAP[model_name]
+def import_arch_class(model: str):
+    if model in _arch_cache:
+        return _arch_cache[model]
+    file_stem, class_name = ARCH_MAP[model]
     arch_path = ARCH_DIR / f'{file_stem}.py'
     if not arch_path.exists():
         raise FileNotFoundError(f"Architecture introuvable : {arch_path}")
@@ -229,471 +135,327 @@ def import_arch_class(model_name: str):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     cls = getattr(module, class_name)
-    _arch_cache[model_name] = cls
+    _arch_cache[model] = cls
     return cls
 
 
-def find_best_model_pt(model_name: str):
-    model_dir = MODEL_BASE / model_name
-    for exp in EXP_PRIORITY:
-        pt = model_dir / f'{model_name}_{exp}_best.pt'
+def find_best_pt(model: str, target: str):
+    """Cherche le meilleur .pt (FULL > D > C > B > A)."""
+    d = MODEL_BASE / model / target
+    for exp in ['FULL', 'D', 'C', 'B', 'A']:
+        pt = d / f'{model}_{target}_{exp}_best.pt'
         if pt.exists():
             return pt, exp
     return None, None
 
 
-def evaluate_on_holdout(model_name: str, X_test: np.ndarray, y_test: np.ndarray,
-                        leakage_info: dict):
+def predict_regression(model_obj, X: np.ndarray) -> np.ndarray:
+    """Prédit des scores continus — sortie scalaire (régression, pas softmax)."""
+    model_obj.eval()
+    X_t = torch.FloatTensor(X)
+    if X_t.dim() == 2:
+        X_t = X_t.unsqueeze(1)
+    preds = []
+    with torch.no_grad():
+        for i in range(0, len(X_t), 256):
+            out = model_obj(X_t[i:i+256].to(DEVICE)).squeeze(1).cpu().numpy()
+            preds.append(out)
+    return np.clip(np.concatenate(preds), 0.0, 10.0)
+
+
+def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, thr=SCORE_THR):
+    """MAE, RMSE, R², AUC-ROC, F1-macro sur seuil thr."""
+    mae  = float(np.mean(np.abs(y_true - y_pred)))
+    rmse = float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
+    ss_res = np.sum((y_true - y_pred) ** 2)
+    ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
+    r2   = float(1 - ss_res / ss_tot) if ss_tot > 0 else 0.0
+    y_bin = (y_true >= thr).astype(int)
+    auc, f1m = 0.5, 0.0
+    if len(np.unique(y_bin)) > 1:
+        try:
+            auc = float(roc_auc_score(y_bin, y_pred))
+        except Exception:
+            pass
+        y_pred_bin = (y_pred >= thr).astype(int)
+        f1m = float(f1_score(y_bin, y_pred_bin, average='macro', zero_division=0))
+    return {'mae': mae, 'rmse': rmse, 'r2': r2, 'auc_roc': auc, 'f1_macro': f1m}
+
+
+def evaluate_on_holdout(model: str, target: str):
     """
-    Charge le .pt et évalue sur X_test.npy.
-    Retourne (row_dict, error_str).
+    Charge le .pt et évalue sur X_test.npy (holdout par sujet).
+    Retourne (metrics_dict, exp_used, error_str).
     """
-    pt_path, exp_used = find_best_model_pt(model_name)
+    X_path = DATA_DIR / target / 'X_test.npy'
+    y_path = DATA_DIR / target / 'y_test.npy'
+    if not X_path.exists():
+        return None, None, f"X_test.npy introuvable pour {target}"
+
+    X_test = np.load(X_path)
+    y_test = np.load(y_path).astype(np.float32)
+
+    pt_path, exp_used = find_best_pt(model, target)
     if pt_path is None:
-        return None, "aucun .pt trouvé"
+        return None, None, f"aucun .pt trouvé dans {MODEL_BASE / model / target}"
 
     try:
-        ModelClass = import_arch_class(model_name)
+        ModelClass = import_arch_class(model)
     except Exception as e:
-        return None, f"import : {e}"
+        return None, None, f"import : {e}"
 
     try:
-        model = ModelClass().to(DEVICE)
+        model_obj = ModelClass().to(DEVICE)
         try:
             state = torch.load(pt_path, map_location=DEVICE, weights_only=True)
         except Exception:
             state = torch.load(pt_path, map_location=DEVICE)
-        model.load_state_dict(state)
+        model_obj.load_state_dict(state)
     except Exception as e:
-        return None, f"chargement poids : {e}"
+        return None, None, f"chargement poids : {e}"
 
-    model.eval()
-    X_t = torch.FloatTensor(X_test)
-    if X_t.dim() == 2:
-        X_t = X_t.unsqueeze(1)
-
-    all_probs, all_preds = [], []
     t0 = time.time()
-    with torch.no_grad():
-        for i in range(0, len(X_t), 256):
-            batch = X_t[i:i+256].to(DEVICE)
-            out   = model(batch)
-            probs = torch.softmax(out, 1).cpu().numpy()
-            preds = out.argmax(1).cpu().numpy()
-            all_probs.append(probs)
-            all_preds.append(preds)
-    elapsed = time.time() - t0
+    y_pred = predict_regression(model_obj, X_test)
+    elapsed_ms = (time.time() - t0) * 1000 / len(y_test)
 
-    probs = np.concatenate(all_probs)
-    preds = np.concatenate(all_preds)
-
-    cm = confusion_matrix(y_test, preds)
-    tn, fp, fn, tp = cm.ravel() if cm.size == 4 else (0, 0, 0, cm[0, 0])
-    spec = tn / (tn + fp) if (tn + fp) > 0 else 0.0
-
-    auc_val = 0.5
-    if len(np.unique(y_test)) > 1:
-        try:
-            auc_val = roc_auc_score(y_test, probs[:, 1])
-        except Exception:
-            pass
-
-    leaked = leakage_info.get('has_leakage')
-    label  = 'Holdout [LEAKED]' if leaked else 'Holdout [OK]' if leaked is False else 'Holdout [?]'
-
-    row = {
-        'model':         model_name,
-        'eval_type':     label,
-        'exp_used':      exp_used,
-        'accuracy':      accuracy_score(y_test, preds),
-        'f1_macro':      f1_score(y_test, preds, average='macro', zero_division=0),
-        'f1_binary':     f1_score(y_test, preds, zero_division=0),
-        'precision':     precision_score(y_test, preds, zero_division=0),
-        'recall':        recall_score(y_test, preds, zero_division=0),
-        'specificity':   spec,
-        'auc':           auc_val,
-        'pct_uncertain': float(np.sum(np.max(probs, 1) < 0.60) / len(y_test) * 100),
-        'n_folds':       0,
-        'overfitting_folds': 0,
-        'train_time_sec':0,
-        'inference_ms':  elapsed * 1000 / len(y_test),
-        'avg_conc_rate': float(np.mean(probs[:, 0]) * 100),
-        'avg_stress_rate':float(np.mean(probs[:, 1]) * 100),
-        'source':        'holdout',
-        'has_leakage':   leaked,
-        'n_samples':     len(y_test),
-    }
-    return row, None
+    m = compute_metrics(y_test, y_pred)
+    m['inference_ms_per_epoch'] = elapsed_ms
+    m['n_test'] = len(y_test)
+    m['exp_pt'] = exp_used
+    return m, exp_used, None
 
 
-# ============================================================================
-# 4. VISUALISATIONS
-# ============================================================================
-def plot_loso_ranking(df: pd.DataFrame, save_path: Path):
-    """Barplot horizontal du classement LOSO (honnête)."""
-    metrics = ['f1_macro', 'auc', 'accuracy']
-    titles  = ['F1-MACRO (critère principal)', 'AUC', 'Accuracy']
-    fig, axes = plt.subplots(1, 3, figsize=(20, max(7, len(df) * 0.4)))
+# ─── Visualisations ───────────────────────────────────────────────────────
+def plot_ranking(df: pd.DataFrame, target: str, save_path: Path):
+    metrics = [('mae', 'MAE ↓', True), ('r2', 'R² ↑', False), ('auc_roc', 'AUC-ROC ↑', False)]
+    fig, axes = plt.subplots(1, 3, figsize=(21, max(6, len(df) * 0.45)))
     cmap = plt.cm.tab20(np.linspace(0, 1, len(df)))
 
-    for ax, metric, title in zip(axes, metrics, titles):
-        sorted_df = df.sort_values(metric, ascending=True)
+    for ax, (metric, label, invert) in zip(axes, metrics):
+        sorted_df = df.sort_values(metric, ascending=not invert)
         bars = ax.barh(sorted_df['model'], sorted_df[metric],
                        color=cmap[:len(sorted_df)], alpha=0.85)
-        ax.set_xlabel(metric.replace('_', ' ').upper())
-        ax.set_title(title, fontsize=11, fontweight='bold')
-        ax.set_xlim([0, 1.1])
-        ax.axvline(0.70, color='green', ls='--', lw=1, alpha=0.6, label='70%')
-        ax.axvline(0.85, color='blue',  ls=':',  lw=1, alpha=0.6, label='85%')
-        ax.legend(fontsize=7)
+        ax.set_xlabel(label)
+        ax.set_title(label, fontsize=11, fontweight='bold')
         ax.grid(axis='x', alpha=0.3)
         for bar, val in zip(bars, sorted_df[metric]):
-            ax.text(val + 0.005, bar.get_y() + bar.get_height()/2,
+            ax.text(bar.get_width() + 0.002, bar.get_y() + bar.get_height() / 2,
                     f'{val:.3f}', va='center', fontsize=7)
 
-    fig.suptitle('NeuroCap – Classement DL (LOSO – évaluation honnête)',
+    fig.suptitle(f'NeuroCap – DL Régression — {target.upper()} (meilleure expérience)',
                  fontsize=13, fontweight='bold')
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.tight_layout(rect=[0, 0, 1, 0.94])
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
 
 
-def plot_loso_heatmap(df: pd.DataFrame, save_path: Path):
-    metrics = ['f1_macro', 'auc', 'accuracy', 'recall', 'specificity']
-    labels  = ['F1-Macro', 'AUC', 'Accuracy', 'Recall', 'Specificité']
-    df_heat = df.set_index('model')[metrics].copy()
-    df_heat.columns = labels
-    df_heat = df_heat.sort_values('F1-Macro', ascending=False)
-    vmin = max(0, df_heat.values.min() - 0.05)
+def plot_heatmap(df: pd.DataFrame, target: str, save_path: Path):
+    cols  = ['mae', 'rmse', 'r2', 'auc_roc', 'f1_macro']
+    lbls  = ['MAE', 'RMSE', 'R²', 'AUC-ROC', 'F1-macro']
+    heat  = df.set_index('model')[cols].copy()
+    heat.columns = lbls
+    heat  = heat.sort_values('MAE')
 
-    fig, ax = plt.subplots(figsize=(10, max(6, len(df) * 0.45)))
-    sns.heatmap(df_heat, annot=True, fmt='.3f', cmap='RdYlGn',
-                vmin=vmin, vmax=1, linewidths=0.5, ax=ax,
-                cbar_kws={'label': 'Score'})
-    ax.set_title('Heatmap DL – Métriques LOSO (évaluation honnête)',
+    fig, ax = plt.subplots(figsize=(10, max(5, len(df) * 0.45)))
+    # MAE et RMSE : vert = petit (bon) → inverser colormap
+    norm_heat = heat.copy()
+    for col in ['MAE', 'RMSE']:
+        col_min = norm_heat[col].min()
+        col_max = norm_heat[col].max()
+        if col_max > col_min:
+            norm_heat[col] = 1 - (norm_heat[col] - col_min) / (col_max - col_min)
+    sns.heatmap(norm_heat, annot=heat, fmt='.3f', cmap='RdYlGn',
+                vmin=0, vmax=1, linewidths=0.5, ax=ax,
+                cbar_kws={'label': 'Score normalisé (vert=bon)'})
+    ax.set_title(f'Heatmap DL Régression — {target.upper()}',
                  fontsize=12, fontweight='bold')
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
 
 
-def plot_radar_top5(df: pd.DataFrame, save_path: Path):
-    top5  = df.nlargest(min(5, len(df)), 'f1_macro')
-    cats  = ['f1_macro', 'auc', 'accuracy', 'recall', 'specificity']
-    lbls  = ['F1-Macro', 'AUC', 'Accuracy', 'Recall', 'Specificité']
-    N     = len(cats)
-    angles = [n / float(N) * 2 * np.pi for n in range(N)] + [0]
-
-    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
-    cmap = plt.cm.tab10(np.linspace(0, 1, len(top5)))
-
-    for (_, row), color in zip(top5.iterrows(), cmap):
-        vals = [row[c] for c in cats] + [row[cats[0]]]
-        ax.plot(angles, vals, lw=2, color=color, label=row['model'])
-        ax.fill(angles, vals, alpha=0.08, color=color)
-
-    ax.set_thetagrids(np.degrees(angles[:-1]), lbls, fontsize=9)
-    ax.set_ylim([0, 1])
-    ax.set_title('Radar – Top 5 DL (LOSO)', fontsize=12, fontweight='bold', pad=20)
-    ax.legend(loc='upper right', bbox_to_anchor=(1.4, 1.15), fontsize=9)
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
-    plt.close()
+def composite_score(row):
+    """Même formule que compare.py pour cohérence."""
+    return (0.35 * max(row.get('r2', 0), 0)
+            + 0.30 * (max(row.get('auc_roc', 0.5), 0.5) - 0.5) * 2
+            + 0.20 * max(1 - row.get('mae', 10) / 10, 0)
+            + 0.15 * max(row.get('f1_macro', 0), 0))
 
 
-def plot_loso_vs_holdout(df_loso: pd.DataFrame, df_holdout: pd.DataFrame, save_path: Path):
-    """
-    Scatter : F1-MACRO LOSO (axe X) vs F1-MACRO Holdout (axe Y).
-    Permet de visualiser l'inflation due à la fuite de données.
-    La diagonale y=x = pas d'inflation.
-    """
-    merged = df_loso[['model', 'f1_macro']].rename(columns={'f1_macro': 'f1_loso'})
-    merged = merged.merge(
-        df_holdout[['model', 'f1_macro', 'has_leakage']].rename(
-            columns={'f1_macro': 'f1_holdout'}),
-        on='model', how='inner')
-
-    if merged.empty:
-        return
-
-    fig, ax = plt.subplots(figsize=(8, 7))
-    colors = merged['has_leakage'].map({True: '#E74C3C', False: '#27AE60', None: '#F39C12'})
-    ax.scatter(merged['f1_loso'], merged['f1_holdout'],
-               c=colors, s=120, zorder=5, edgecolors='white', lw=0.5)
-
-    for _, row in merged.iterrows():
-        ax.annotate(row['model'], (row['f1_loso'], row['f1_holdout']),
-                    textcoords='offset points', xytext=(4, 3), fontsize=7)
-
-    lim_min = min(merged['f1_loso'].min(), merged['f1_holdout'].min()) - 0.02
-    lim_max = 1.02
-    ax.plot([lim_min, lim_max], [lim_min, lim_max], 'k--', lw=1.5,
-            label='y=x (pas d\'inflation)')
-
-    from matplotlib.patches import Patch
-    handles = [
-        Patch(color='#E74C3C', label='Fuite détectée (scores gonflés)'),
-        Patch(color='#27AE60', label='Pas de fuite'),
-        Patch(color='#F39C12', label='Inconnu'),
-    ]
-    ax.legend(handles=handles, fontsize=8)
-    ax.set_xlabel('F1-MACRO LOSO (honnête)', fontsize=11)
-    ax.set_ylabel('F1-MACRO Holdout (potentiellement gonflé)', fontsize=11)
-    ax.set_title('Inflation des scores due à la fuite intra-sujet\n'
-                 'Points au-dessus de y=x = scores artificiellement hauts',
-                 fontsize=11, fontweight='bold')
-    ax.grid(alpha=0.3)
-    ax.set_xlim([lim_min, lim_max])
-    ax.set_ylim([lim_min, lim_max])
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
-    plt.close()
-
-
-# ============================================================================
-# 5. MAIN
-# ============================================================================
-def main(models_to_test=None):
+# ─── Main ─────────────────────────────────────────────────────────────────
+def main(models_to_test=None, targets_to_test=None):
     print("=" * 75)
-    print("NeuroCap – Test Suite Deep Learning (évaluation honnête LOSO)")
-    print(f"Device : {DEVICE}")
+    print("NeuroCap – Test Suite DL Régression")
+    print(f"Device : {DEVICE} | Seuil Low/High : {SCORE_THR}")
     print("=" * 75)
 
-    # ─── Vérification fuite dans X_test.npy ──────────────────────────────────
-    print("\n" + "─" * 75)
-    print("VÉRIFICATION FUITE DE DONNÉES (X_test.npy)")
-    print("─" * 75)
-    leakage = check_holdout_leakage()
-    print(leakage['message'])
-    if leakage['has_leakage']:
-        print("\n  CONSÉQUENCE : Les scores sur X_test.npy sont INVALIDES")
-        print("  pour mesurer la généralisation inter-sujets.")
-        print("  → Le classement utilisera UNIQUEMENT les métriques LOSO.")
-    elif leakage['has_leakage'] is None:
-        print("\n  ATTENTION : Sans subject_ids, on ne peut pas garantir")
-        print("  l'absence de fuite. Scores parfaits (F1≈1.0) = suspect.")
+    target_models  = models_to_test  or ALL_MODELS
+    target_targets = targets_to_test or TARGETS
 
-    # Sauvegarde rapport fuite
-    with open(REPORT_DIR / 'leakage_report.txt', 'w', encoding='utf-8') as f:
-        f.write("NeuroCap – Rapport de vérification fuite de données\n")
-        f.write("=" * 60 + "\n\n")
-        f.write(leakage['message'] + "\n\n")
-        if leakage['train_subjects']:
-            f.write(f"Sujets train : {leakage['train_subjects']}\n")
-        if leakage['test_subjects']:
-            f.write(f"Sujets test  : {leakage['test_subjects']}\n")
-        if leakage['overlap_subjects']:
-            f.write(f"Sujets en commun : {leakage['overlap_subjects']}\n")
-        f.write("\nExplication :\n")
-        f.write("  Le fichier X_test.npy est souvent créé par split ALÉATOIRE\n")
-        f.write("  des époques. Si le même sujet a des époques en train ET en test,\n")
-        f.write("  le modèle a vu sa 'signature EEG personnelle' à l'entraînement.\n")
-        f.write("  La classification devient triviale → F1 artificiellement parfait.\n")
-        f.write("  La vraie métrique de généralisation = LOSO (Leave-One-Subject-Out).\n")
+    all_rows   = {t: [] for t in TARGETS}
+    loso_rows  = []
 
-    # ─── Chargement des données holdout (pour info) ───────────────────────────
-    X_test_loaded, y_test_loaded = None, None
-    xp, yp = DATA_DIR / 'X_test.npy', DATA_DIR / 'y_test.npy'
-    if xp.exists() and yp.exists():
-        X_test_loaded = np.load(xp)
-        y_test_loaded = np.load(yp)
-        print(f"\n  Holdout : {len(X_test_loaded)} epochs "
-              f"| {np.sum(y_test_loaded==0)} Conc, {np.sum(y_test_loaded==1)} Stress")
-
-    target_models = models_to_test if models_to_test else ALL_MODELS
-    loso_rows   = []
-    holdout_rows = []
-    no_loso     = []
-
-    for model_name in target_models:
-        if model_name not in ARCH_MAP:
-            print(f"\n[SKIP] Modèle inconnu : {model_name}")
+    for model in target_models:
+        if model not in ARCH_MAP:
+            print(f"\n[SKIP] Modèle inconnu : {model}")
             continue
 
-        print(f"\n{'─'*60}")
-        print(f"  Modèle : {model_name}")
+        print(f"\n{'─'*65}")
+        print(f"  Modèle : {model}")
 
-        # ── 1. Métriques LOSO (honnêtes) ──────────────────────────────────
-        loso_raw, err_loso = load_loso_metrics(model_name)
-        if loso_raw is not None:
-            row_loso = extract_loso_row(model_name, loso_raw)
-            loso_rows.append(row_loso)
-            print(f"  [LOSO] F1-MACRO={row_loso['f1_macro']:.4f}  "
-                  f"AUC={row_loso['auc']:.4f}  "
-                  f"Acc={row_loso['accuracy']:.4f}  "
-                  f"Folds={row_loso['n_folds']}")
-        else:
-            no_loso.append((model_name, err_loso))
-            print(f"  [LOSO] Non disponible : {err_loso}")
+        for target in target_targets:
+            print(f"\n  ── {target.upper()} ──")
 
-        # ── 2. Évaluation holdout (pour comparer, marquer si leaked) ──────
-        if X_test_loaded is not None:
-            row_holdout, err_h = evaluate_on_holdout(
-                model_name, X_test_loaded, y_test_loaded, leakage)
-            if row_holdout:
-                holdout_rows.append(row_holdout)
-                leaked_label = '[LEAKED]' if leakage['has_leakage'] else \
-                               '[OK]'     if leakage['has_leakage'] is False else '[?]'
-                print(f"  [Holdout {leaked_label}] F1-MACRO={row_holdout['f1_macro']:.4f}  "
-                      f"AUC={row_holdout['auc']:.4f}  "
-                      f"Lat={row_holdout['inference_ms']:.3f} ms/ep")
-                if leakage['has_leakage'] and row_holdout['f1_macro'] > 0.95:
-                    inflation = row_holdout['f1_macro'] - (row_loso['f1_macro'] if loso_raw else 0)
-                    print(f"  [!] Score gonflé : inflation estimée = +{inflation:.4f} "
-                          f"(à cause de la fuite)")
+            # ── 1. Métriques sauvegardées (meilleure expérience) ────────────
+            best_m, best_exp = best_saved_metrics(model, target)
+            if best_m is not None:
+                row = {
+                    'model':        model,
+                    'target':       target,
+                    'exp':          best_exp,
+                    'source':       'saved_metrics',
+                    'mae':          best_m.get('mae',      99.0),
+                    'rmse':         best_m.get('rmse',     99.0),
+                    'r2':           best_m.get('r2',       -99.0),
+                    'auc_roc':      best_m.get('auc_roc',  0.5),
+                    'f1_macro':     best_m.get('f1_macro', 0.0),
+                    'deploy_score': (best_m.get('deploy') or {}).get('total_score', 0.0),
+                    'train_time_s': best_m.get('train_time_sec', 0.0),
+                }
+                row['composite'] = composite_score(row)
+                all_rows[target].append(row)
+                print(f"  [Sauvegardé Exp.{best_exp}] "
+                      f"MAE={row['mae']:.3f}  R²={row['r2']:.3f}  "
+                      f"AUC={row['auc_roc']:.3f}  F1={row['f1_macro']:.3f}  "
+                      f"Deploy={row['deploy_score']:.1f}")
             else:
-                print(f"  [Holdout] Erreur : {err_h}")
+                print(f"  [Sauvegardé] Aucun metrics.json trouvé")
 
-    # ─── Résultats LOSO ───────────────────────────────────────────────────────
-    if not loso_rows:
-        print("\n" + "=" * 75)
-        print("[ERREUR] Aucune métrique LOSO disponible.")
-        print("Assurez-vous d'avoir entraîné les modèles avec DL_utils.py")
-        print("(la fonction run_loso_validation génère LOSO_exp_A/metrics.json)")
-        if no_loso:
-            print("\nModèles sans LOSO :")
-            for name, reason in no_loso:
-                print(f"  - {name}: {reason}")
-        return
+            # ── 2. Évaluation directe sur holdout X_test.npy ────────────────
+            m_ho, exp_pt, err = evaluate_on_holdout(model, target)
+            if m_ho is not None:
+                print(f"  [Holdout .pt Exp.{exp_pt}] "
+                      f"MAE={m_ho['mae']:.3f}  R²={m_ho['r2']:.3f}  "
+                      f"AUC={m_ho['auc_roc']:.3f}  "
+                      f"Lat={m_ho['inference_ms_per_epoch']:.2f}ms/ep")
+            else:
+                print(f"  [Holdout] {err}")
 
-    # ─── DataFrame LOSO & score pondéré ──────────────────────────────────────
-    df_loso = pd.DataFrame(loso_rows)
-    df_loso['weighted_score'] = (
-        0.40 * df_loso['f1_macro']
-        + 0.30 * df_loso['auc']
-        + 0.20 * df_loso['accuracy']
-        + 0.10 * (1 - df_loso['pct_uncertain'] / 100)
-    )
-    df_loso = df_loso.sort_values('weighted_score', ascending=False).reset_index(drop=True)
-    df_loso.to_csv(REPORT_DIR / 'results_table_LOSO.csv', index=False)
+            # ── 3. LOSO ─────────────────────────────────────────────────────
+            loso_m = load_loso_metrics(model, target)
+            if loso_m is not None:
+                loso_rows.append({
+                    'model':    model,
+                    'target':   target,
+                    'mae':      loso_m.get('mae',     99.0),
+                    'rmse':     loso_m.get('rmse',    99.0),
+                    'r2':       loso_m.get('r2',      -99.0),
+                    'auc_roc':  loso_m.get('auc_roc', 0.5),
+                    'f1_macro': loso_m.get('f1_macro', 0.0),
+                    'n_folds':  loso_m.get('n_folds', 0),
+                })
+                print(f"  [LOSO]       "
+                      f"MAE={loso_m.get('mae',0):.3f}  R²={loso_m.get('r2',0):.3f}  "
+                      f"AUC={loso_m.get('auc_roc',0):.3f}  "
+                      f"Folds={loso_m.get('n_folds',0)}")
+            else:
+                print(f"  [LOSO]       Non disponible")
 
-    df_holdout = pd.DataFrame(holdout_rows) if holdout_rows else pd.DataFrame()
-    if not df_holdout.empty:
-        df_holdout.to_csv(REPORT_DIR / 'results_table_holdout.csv', index=False)
+    # ─── Tableaux et graphiques par target ───────────────────────────────────
+    for target in target_targets:
+        rows = all_rows[target]
+        if not rows:
+            print(f"\n[{target.upper()}] Aucune métrique disponible.")
+            continue
 
-    # ─── Affichage classement LOSO ───────────────────────────────────────────
-    print(f"\n{'='*75}")
-    print("CLASSEMENT LOSO – ÉVALUATION HONNÊTE (inter-sujets)")
-    print("NB : ces métriques reflètent la vraie généralisation")
-    print(f"{'='*75}")
-    print(f"{'Rang':>4}  {'Modèle':<18}  "
-          f"{'F1m':>6}  {'AUC':>6}  {'Acc':>6}  "
-          f"{'Folds':>5}  {'OF%':>5}  {'Score':>6}")
-    print("-" * 75)
-    for rank, row in df_loso.iterrows():
-        marker = " ★" if rank == 0 else "  "
-        of_pct = (row['overfitting_folds'] / row['n_folds'] * 100
-                  if row['n_folds'] > 0 else 0)
-        print(f"{rank+1:>4}{marker} {row['model']:<18}  "
-              f"{row['f1_macro']:.4f}  {row['auc']:.4f}  {row['accuracy']:.4f}  "
-              f"{row['n_folds']:>5.0f}  {of_pct:>4.0f}%  {row['weighted_score']:.4f}")
+        df = pd.DataFrame(rows).sort_values('composite', ascending=False).reset_index(drop=True)
+        df.index += 1
+        df.index.name = 'Rang'
 
-    best = df_loso.iloc[0]
-    print(f"\n★ Meilleure architecture DL (LOSO) : {best['model']}")
-    print(f"  F1-MACRO = {best['f1_macro']:.4f}  |  AUC = {best['auc']:.4f}  "
-          f"|  Accuracy = {best['accuracy']:.4f}")
-    print(f"  Folds avec overfitting : {int(best['overfitting_folds'])}/{int(best['n_folds'])}")
+        print(f"\n{'='*75}")
+        print(f"CLASSEMENT {target.upper()} (score composite = 35%R² + 30%AUC + 20%MAE + 15%F1)")
+        print(f"{'='*75}")
+        print(f"{'Rang':>4}  {'Modèle':<16}  {'Exp':>4}  {'MAE':>6}  {'RMSE':>6}  "
+              f"{'R²':>7}  {'AUC':>6}  {'F1':>6}  {'Deploy':>7}  {'Score':>7}")
+        print("─" * 75)
+        for rank, row in df.iterrows():
+            marker = " ★" if rank == 1 else "  "
+            print(f"{rank:>4}{marker} {row['model']:<16}  {row['exp']:>4}  "
+                  f"{row['mae']:>6.3f}  {row['rmse']:>6.3f}  "
+                  f"{row['r2']:>7.3f}  {row['auc_roc']:>6.3f}  "
+                  f"{row['f1_macro']:>6.3f}  {row['deploy_score']:>7.1f}  "
+                  f"{row['composite']:>7.4f}")
 
-    # ─── Comparaison LOSO vs Holdout (si disponible) ─────────────────────────
-    if not df_holdout.empty and not df_loso.empty:
-        print(f"\n{'─'*75}")
-        print("COMPARAISON LOSO (honnête) vs Holdout (potentiellement gonflé)")
-        print(f"{'─'*75}")
-        print(f"{'Modèle':<20}  {'F1 LOSO':>8}  {'F1 Holdout':>10}  "
-              f"{'Inflation':>10}  {'Fuite?':>7}")
-        print("-" * 60)
-        for _, lr in df_loso.iterrows():
-            hrow = df_holdout[df_holdout['model'] == lr['model']]
-            if hrow.empty:
+        # CSV
+        df.to_csv(REPORT_DIR / f'results_{target}.csv')
+
+        # Figures
+        plot_ranking(df.reset_index(), target, REPORT_DIR / f'ranking_{target}.png')
+        plot_heatmap(df.reset_index(), target, REPORT_DIR / f'heatmap_{target}.png')
+        print(f"\n  ranking_{target}.png + heatmap_{target}.png")
+
+    # ─── Tableau LOSO ─────────────────────────────────────────────────────────
+    if loso_rows:
+        df_loso = pd.DataFrame(loso_rows).sort_values(['target', 'mae'])
+        df_loso.to_csv(REPORT_DIR / 'loso_summary.csv', index=False)
+
+        print(f"\n{'='*75}")
+        print("RÉSUMÉ LOSO")
+        print(f"{'='*75}")
+        print(f"{'Modèle':<16}  {'Target':>7}  {'MAE':>6}  {'R²':>7}  "
+              f"{'AUC':>6}  {'F1':>6}  {'Folds':>5}")
+        print("─" * 60)
+        for _, r in df_loso.iterrows():
+            print(f"{r['model']:<16}  {r['target']:>7}  {r['mae']:>6.3f}  "
+                  f"{r['r2']:>7.3f}  {r['auc_roc']:>6.3f}  "
+                  f"{r['f1_macro']:>6.3f}  {r['n_folds']:>5.0f}")
+
+    # ─── Rapport de décision ──────────────────────────────────────────────────
+    rpt = REPORT_DIR / 'decision_report.txt'
+    with open(rpt, 'w', encoding='utf-8') as f:
+        f.write("NeuroCap – Rapport de Décision DL Régression\n")
+        f.write("=" * 65 + "\n")
+        f.write(f"Seuil Low/High : {SCORE_THR} | Score composite : "
+                f"35%R² + 30%AUC + 20%(1-MAE/10) + 15%F1\n\n")
+        for target in target_targets:
+            rows = all_rows[target]
+            if not rows:
                 continue
-            hr    = hrow.iloc[0]
-            infl  = hr['f1_macro'] - lr['f1_macro']
-            leak  = '  OUI' if hr.get('has_leakage') else ' NON' if hr.get('has_leakage') is False else '  ???'
-            flag  = '  [!]' if infl > 0.05 else ''
-            print(f"{lr['model']:<20}  {lr['f1_macro']:>8.4f}  {hr['f1_macro']:>10.4f}  "
-                  f"{infl:>+10.4f}  {leak}{flag}")
-
-    if no_loso:
-        print(f"\nModèles sans métriques LOSO ({len(no_loso)}) :")
-        for name, reason in no_loso:
-            print(f"  - {name}: {reason}")
-
-    # ─── Graphiques ──────────────────────────────────────────────────────────
-    print("\nGénération des graphiques LOSO...")
-    plot_loso_ranking(df_loso,  REPORT_DIR / 'ranking_barplot_LOSO.png')
-    plot_loso_heatmap(df_loso,  REPORT_DIR / 'heatmap_metrics_LOSO.png')
-    if len(df_loso) >= 3:
-        plot_radar_top5(df_loso, REPORT_DIR / 'radar_top5_LOSO.png')
-    if not df_holdout.empty:
-        plot_loso_vs_holdout(df_loso, df_holdout, REPORT_DIR / 'loso_vs_holdout.png')
-
-    # ─── Rapport de décision ─────────────────────────────────────────────────
-    report_path = REPORT_DIR / 'decision_report.txt'
-    with open(report_path, 'w', encoding='utf-8') as f:
-        f.write("NeuroCap – Rapport de Décision Deep Learning\n")
-        f.write("Évaluation LOSO (Leave-One-Subject-Out) – Honnête\n")
-        f.write("=" * 65 + "\n\n")
-        f.write("IMPORTANT : Ce rapport utilise les métriques LOSO, pas X_test.npy.\n")
-        f.write("Le fichier X_test.npy peut avoir une fuite intra-sujet (voir leakage_report.txt).\n")
-        f.write("En LOSO, chaque sujet est testé sur un modèle entraîné SANS lui.\n\n")
-        f.write(f"Critère : F1-MACRO  "
-                f"| Score = 40%F1m + 30%AUC + 20%Acc + 10%certitude\n\n")
-        f.write(f"{'Rang':<5} {'Modèle':<18} {'F1m':>6} {'AUC':>6} "
-                f"{'Acc':>6} {'Folds':>5} {'OF%':>5} {'Score':>7}\n")
-        f.write("-" * 65 + "\n")
-        for rank, row in df_loso.iterrows():
-            of_pct = (row['overfitting_folds'] / row['n_folds'] * 100
-                      if row['n_folds'] > 0 else 0)
-            f.write(f"{rank+1:<5} {row['model']:<18} "
-                    f"{row['f1_macro']:>6.4f} {row['auc']:>6.4f} "
-                    f"{row['accuracy']:>6.4f} {row['n_folds']:>5.0f} "
-                    f"{of_pct:>4.0f}%  {row['weighted_score']:>7.4f}\n")
-        f.write("\n" + "=" * 65 + "\n")
-        f.write(f"RECOMMANDATION DL (LOSO) : {best['model']}\n")
-        f.write(f"  F1-MACRO  = {best['f1_macro']:.4f}\n")
-        f.write(f"  AUC       = {best['auc']:.4f}\n")
-        f.write(f"  Accuracy  = {best['accuracy']:.4f}\n")
-        f.write(f"  Incertains = {best['pct_uncertain']:.1f}%\n")
-        of_pct_best = (best['overfitting_folds'] / best['n_folds'] * 100
-                       if best['n_folds'] > 0 else 0)
-        f.write(f"  Folds avec overfitting : {int(best['overfitting_folds'])}"
-                f"/{int(best['n_folds'])} ({of_pct_best:.0f}%)\n")
-
-    # ─── Sauvegarde JSON ──────────────────────────────────────────────────────
-    loso_save = [{k: v for k, v in r.items()} for r in loso_rows]
-    with open(REPORT_DIR / 'results.json', 'w') as f:
-        json.dump({
-            'evaluation_method': 'LOSO',
-            'best': best['model'],
-            'best_f1_macro': best['f1_macro'],
-            'best_weighted_score': best['weighted_score'],
-            'leakage_detected': leakage['has_leakage'],
-            'leakage_message': leakage['message'],
-            'all_results': loso_save,
-        }, f, indent=2, default=str)
+            df = pd.DataFrame(rows).sort_values('composite', ascending=False)
+            best = df.iloc[0]
+            f.write(f"\n{'─'*65}\n")
+            f.write(f"TARGET : {target.upper()}\n")
+            f.write(f"{'─'*65}\n")
+            f.write(f"★ MEILLEUR : {best['model']} (Exp. {best['exp']})\n")
+            f.write(f"  MAE={best['mae']:.4f}  RMSE={best['rmse']:.4f}  "
+                    f"R²={best['r2']:.4f}\n")
+            f.write(f"  AUC-ROC={best['auc_roc']:.4f}  F1-macro={best['f1_macro']:.4f}  "
+                    f"Deploy={best['deploy_score']:.1f}/100\n\n")
+            f.write(f"{'Rang':<5} {'Modèle':<16} {'Exp':>4} {'MAE':>7} "
+                    f"{'R²':>7} {'AUC':>7} {'Score':>8}\n")
+            f.write("-" * 55 + "\n")
+            for rank, (_, row) in enumerate(df.iterrows(), 1):
+                f.write(f"{rank:<5} {row['model']:<16} {row['exp']:>4} "
+                        f"{row['mae']:>7.4f} {row['r2']:>7.4f} "
+                        f"{row['auc_roc']:>7.4f} {row['composite']:>8.4f}\n")
 
     print(f"\n{'='*75}")
     print(f"Sorties : {REPORT_DIR}")
-    print(f"  • results_table_LOSO.csv      ← classement principal (honnête)")
-    print(f"  • results_table_holdout.csv   ← pour info seulement")
-    print(f"  • ranking_barplot_LOSO.png")
-    print(f"  • heatmap_metrics_LOSO.png")
-    print(f"  • radar_top5_LOSO.png")
-    print(f"  • loso_vs_holdout.png         ← visualise l'inflation des scores")
-    print(f"  • leakage_report.txt          ← explication fuite de données")
+    print(f"  • results_conc.csv / results_stress.csv")
+    print(f"  • ranking_conc.png / ranking_stress.png")
+    print(f"  • heatmap_conc.png / heatmap_stress.png")
+    print(f"  • loso_summary.csv")
     print(f"  • decision_report.txt")
-    print(f"  • results.json")
     print(f"{'='*75}")
 
 
 if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        requested = sys.argv[1:]
-        valid   = [m for m in requested if m in ARCH_MAP]
-        invalid = [m for m in requested if m not in ARCH_MAP]
-        if invalid:
-            print(f"[WARN] Modèles inconnus : {invalid}")
-            print(f"Disponibles : {ALL_MODELS}")
-        main(valid if valid else None)
-    else:
-        main()
+    args = sys.argv[1:]
+    models  = [a for a in args if a in ARCH_MAP]
+    targets = [a for a in args if a in TARGETS]
+    unknown = [a for a in args if a not in ARCH_MAP and a not in TARGETS]
+    if unknown:
+        print(f"[WARN] Arguments inconnus : {unknown}")
+        print(f"  Modèles  : {ALL_MODELS}")
+        print(f"  Cibles   : {TARGETS}")
+    main(models or None, targets or None)
