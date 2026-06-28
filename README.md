@@ -247,16 +247,29 @@ src/
 
 ### `models/` — Trained Artefacts
 
-| Folder | Contents |
-|---|---|
-| `Baseline/` | `rf_model.pkl`, `svm_model.pkl`, `xgb_model.pkl` |
-| `baseline_FeatEng/` | Same classifiers trained on engineered features |
-| `deep_learning/DL_models/` | `.pt` checkpoints for all 17+ architectures |
-| `deep_learning/DANN_models/` | Domain Adversarial Neural Network variants |
-| `transfer_learning/TL_models/` | EEGNet TL variants (3 strategies) |
-| `personal/` | `patient_{id}_v{n}.joblib` — per-patient fine-tuned models |
+```
+models/
+├── Regression/
+│   ├── DL/
+│   │   ├── EEGNet/conc/EEGNet_conc_FULL_best.pt   ← PRODUCTION (AUC 0.751)
+│   │   └── <ModelName>/<task>/                      19 architectures × 2 tâches × 5 expériences
+│   └── TL/
+│       └── EEGNet_LayerReplacement/stress/EEGNet_LR_stress_FULL_best.pt  ← PRODUCTION (AUC 0.607)
+├── Baseline/
+│   ├── feat15/    SVR / RF / XGBoost / LightGBM entraînés sur 15 features (sans/avec SMOTE)
+│   └── feat78/    Mêmes modèles sur 78 features avancées (meilleure AUC +4.5 pts)
+└── personal/
+    └── patient_{id8}_{task}_v{n}.pt   EEGNet fine-tuné par patient (nightly APScheduler)
+```
 
-> **Best model:** `CNN_LSTM_Att.pt` — **89.4 % accuracy**, F1: 0.89
+| Dossier | Modèles retenus | AUC LOSO | Statut |
+|---|---|---|---|
+| `Regression/DL/EEGNet/conc/` | EEGNet DL FULL | **0.751** | ✅ Production |
+| `Regression/TL/EEGNet_LayerReplacement/stress/` | EEGNet TL-LR FULL | **0.607** | ⚠️ Conditionnel |
+| `Baseline/feat78/` | LightGBM (conc 0.676) · RF (stress 0.668) | 0.668–0.676 | Référence ML |
+| `personal/` | EEGNet fine-tuné patient (`patient_{id8}_{task}_v{n}.pt`) | — | Fine-tuning |
+
+> **Modèles de production :** `EEGNet_conc_FULL_best.pt` (concentration, AUC = 0.751) · `EEGNet_LR_stress_FULL_best.pt` (stress, AUC = 0.607) — régression continue 0–10, validation LOSO stricte (Leave-One-Subject-Out).
 
 ---
 
@@ -325,11 +338,12 @@ docker compose -f docker/docker-compose.yml up --build
 | Layer | Technology |
 |---|---|
 | **Frontend** | React 18, Vite, Tailwind CSS 3, Zustand, Recharts, Three.js, i18next (FR/EN/AR) |
-| **Backend** | FastAPI, Python 3.11+, Supabase AsyncClient, bcrypt, python-jose, APScheduler |
+| **Backend** | FastAPI, Python 3.11+, Supabase (sync client + AsyncProxy), bcrypt, python-jose, APScheduler, dnspython |
 | **Database** | Supabase (PostgreSQL) |
 | **Real-time** | WebSocket — EEG stream via FastAPI, TCP receiver for ESP32 |
 | **Email** | Brevo SMTP (300 emails/day, free tier — transactional verification codes) |
-| **ML / DSP** | PyTorch, NumPy, SciPy, MNE, PyWavelets, LightGBM, scikit-learn, XGBoost |
+| **ML / DSP** | PyTorch (EEGNet), NumPy, SciPy, MNE, PyWavelets, LightGBM, scikit-learn, XGBoost |
+| **RAG Assistant** | ChromaDB / FAISS, Ollama embeddings, Mistral LLM (NeuroCoach) |
 | **Hardware** | AD8232 ECG module + ESP32 (single-channel Fp2, 250 Hz) |
 | **Deployment** | Docker Compose, Nginx (optional reverse proxy) |
 
@@ -338,29 +352,38 @@ docker compose -f docker/docker-compose.yml up --build
 ## ML Pipeline
 
 ```
-Raw EEG (AD8232 / ESP32 TCP stream or CSV upload)
+Raw EEG (AD8232 / ESP32 TCP stream  OR  CSV / EDF / TXT upload)
     │
-    ▼  Bandpass 1–45 Hz · Notch 50 Hz · Baseline correction
-Cleaned signal
+    ▼  Golden Filter : HP 0.5 Hz · LP 40 Hz · Notch 50 Hz · DWT db4 débruitage
+Cleaned signal @ 250 Hz
     │
-    ▼  Epoch extraction (4 s windows, 75 % overlap)
+    ▼  Epoch extraction : fenêtres 4 s (1000 samples), overlap 75 %
 Epochs
     │
-    ▼  Welch PSD · DWT (PyWavelets) · Statistical features
-Feature matrix
+    ├──────────────── RECHERCHE (src/) ──────────────────────────────────────────
+    │   ▼  Scoring 0–10 (CLA levels → conc_score · SAM40 scales.xls → stress_score)
+    │   ▼  Augmentation 5 expériences (A/B/C/D/FULL : Noise·Scaling·Shift·DWT·MagWarp)
+    │   ▼  Features : feat15 (15 features < 10 ms) · feat78 (78 features ~35 ms)
+    │   ▼  Régression LOSO :
+    │       ├── Baselines ML : SVR / RF / XGBoost / LightGBM (feat15 + feat78 × SMOTE)
+    │       └── Deep Learning : 19 architectures (EEGNet, LSTM, GRU, BiGRU, CNN, TCN…)
+    │                            + Transfer Learning EEGNet (3 stratégies TL)
     │
-    ├── Baseline: Random Forest / SVM / XGBoost
-    └── Deep:     EEGNet / CNN-LSTM-Att / BiGRU-Att  ← best: 89.4 % acc.
-    │
-    ▼  Confidence threshold (0.60) · Rolling EWMA
-Mental state label  {concentration · stress · rest}
-    │
-    ▼  Adaptive engine (P1–P4 difficulty paliers)
-    │
-    ▼  Thompson Sampling → optimal feedback modality selection
-Real-time neurofeedback  {audio · image · video · brain-state · mini-game}
-    │
-    ▼  Session report + per-patient fine-tuning (nightly, APScheduler)
+    └──────────────── PRODUCTION (app/Backend/) ─────────────────────────────────
+        ▼  DualClassifier (EEGNet Conv2d, entrée brute 1000 samples)
+            ├── Concentration : EEGNet DL FULL  → score 0–10  (AUC LOSO = 0.751)
+            └── Stress        : EEGNet TL-LR FULL → score 0–10 (AUC LOSO = 0.607) ⚠ conditionnel
+        │
+        ▼  Normalisation sigmoid → scores 0–100 · seuil de décision 50
+    État cognitif dominant  {concentration · stress · neutral}
+        │
+        ▼  Adaptive engine (paliers P1–P4, EWMA rolling)
+        │
+        ▼  Thompson Sampling → sélection modalité feedback optimale
+    Neurofeedback temps réel  {audio · image · vidéo · brain-state · mini-jeu}
+        │
+        ▼  Rapport session + fine-tuning EEGNet personnalisé (nightly, APScheduler)
+             patient_{id8}_{task}_v{n}.pt  →  modèle individuel
 ```
 
 ---
@@ -408,10 +431,13 @@ Real-time neurofeedback  {audio · image · video · brain-state · mini-game}
 ### Yasmine El Mkhantar
 **Full-stack Integration & ML Pipeline**
 
-- **Full-stack web application** (`app/`) — FastAPI backend architecture, all REST routes, Supabase database integration, React frontend SPA
+- **Full-stack web application** (`app/`) — FastAPI backend architecture, all REST routes, Supabase database integration (sync client + AsyncProxy, DNS patch Windows), React frontend SPA
 - **Authentication system** — JWT auth (access + refresh tokens), email verification (Brevo SMTP), password strength validation, brute-force protection, audit logging
-- **Neurofeedback integration** — integrated Oumama's feedback components into the `FeedbackPage.jsx` 3-phase session flow (setup → live session → rapport), Thompson Sampling adaptive selection persisted in Supabase, patient navbar routing
-- **EEG selector & electrode guide** — full preparation protocol, 10-20 system SVG diagram, AD8232 wiring schema, pre-session checklist integrated directly in `EEGSelector.jsx`
-- **Dashboard & visualisations** — Brain3D anatomy, simulation mode, `RecommendationEngine`, topographic map, real-time signal canvas
-- **ML pipeline** (`src/`) — data augmentation, feature engineering, LightGBM classifier, 17+ deep learning architecture training & evaluation, transfer learning strategies, per-patient nightly fine-tuning
-- **Internationalisation** — full FR / EN / AR translation coverage, RTL layout, light/dark/auto theme system
+- **EEGNet DualClassifier** (`app/Backend/app/services/eeg/dsp/dual_classifier.py`) — intégration des modèles EEGNet entraînés (concentration AUC 0.751 · stress AUC 0.607), régression continue 0–100, normalisation sigmoid, fine-tuning personnel nocturne (APScheduler)
+- **ML pipeline** (`src/`) — pipeline de régression complet : scoring 0–10, augmentation 5 expériences, feat15/feat78 (78 features, 8 catégories), 19 architectures DL, 3 stratégies Transfer Learning EEGNet, module métriques professionnel 5 niveaux (LOSO, bootstrap CI, DCA)
+- **RAG assistant NeuroCoach** (`Assistant_rag/`, `app/Backend/app/services/rag_service.py`) — base de connaissances sémantique 20 documents, embeddings Ollama, assemblage contexte patient, endpoint `/explain`
+- **Neurofeedback integration** — `FeedbackPage.jsx` 3-phase session (setup → live → rapport), Thompson Sampling adaptatif persisté en Supabase, moteur de recommandation
+- **EEG selector & electrode guide** — protocole de préparation, schéma 10-20, câblage AD8232, checklist pré-session dans `EEGSelector.jsx`
+- **Dashboard & visualisations** — Brain3D anatomy, simulation mode, `RecommendationEngine`, carte topographique, canvas signal temps réel
+- **Espace thérapeute** — tableau de bord onglets URL-driven, fiche patient (profil EEG Type A/B/C, paliers P1–P4), alertes inactivité, notes cliniques, export CSV
+- **Internationalisation** — FR / EN / AR complet, RTL layout, thème light/dark/auto
