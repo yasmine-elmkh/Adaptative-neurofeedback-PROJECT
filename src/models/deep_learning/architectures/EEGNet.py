@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import torch, torch.nn as nn
-from DL_utils import N_CLASSES, EPOCH_SAMPLES, dl_main
+from DL_utils_regression import N_CLASSES, EPOCH_SAMPLES, dl_main_regression
 
 class EEGNet(nn.Module):
     def __init__(self, n_classes=N_CLASSES, F1=8, D=2, F2=16, dropout=0.5):
@@ -38,4 +38,4 @@ class EEGNet(nn.Module):
         return self.fc(self._forward_features(x))
 
 if __name__ == '__main__':
-    dl_main("EEGNet", EEGNet)
+    dl_main_regression("EEGNet", EEGNet)

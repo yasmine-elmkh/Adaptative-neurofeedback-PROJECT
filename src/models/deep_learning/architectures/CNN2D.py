@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from pathlib import Path;
 
 import torch, torch.nn as nn
-from DL_utils import N_CLASSES, EPOCH_SAMPLES, dl_main
+from DL_utils_regression import N_CLASSES, EPOCH_SAMPLES, dl_main_regression
 
 def signal_to_spectrogram(x, n_fft=128, hop_length=32, window=None):
     if window is None:
@@ -27,4 +27,4 @@ class CNN2D(nn.Module):
         return self.fc(self.conv3(self.conv2(self.conv1(x))))
 
 if __name__ == '__main__':
-    dl_main("CNN2D", CNN2D)
+    dl_main_regression("CNN2D", CNN2D)

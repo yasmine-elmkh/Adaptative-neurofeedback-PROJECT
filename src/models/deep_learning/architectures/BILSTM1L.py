@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import torch.nn as nn
-from DL_utils import N_CLASSES, CNNPreEncoder, dl_main
+from DL_utils_regression import N_CLASSES, CNNPreEncoder, dl_main_regression
 
 class BiLSTM_1L(nn.Module):
     """BiLSTM 1 couche 64 unités (128 sortie bidi) avec CNNPreEncoder."""
@@ -22,4 +22,4 @@ class BiLSTM_1L(nn.Module):
         return self.fc(out[:, -1, :])     # Dernier pas de temps
 
 if __name__ == "__main__":
-    dl_main("BiLSTM_1L", BiLSTM_1L)
+    dl_main_regression("BiLSTM_1L", BiLSTM_1L)

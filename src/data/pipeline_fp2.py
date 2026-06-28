@@ -103,7 +103,8 @@ def _psd(x, fs=FS, nperseg=256):
 def _band_power(freqs, psd, flo, fhi):
     """Intègre la PSD sur une bande de fréquence donnée (méthode trapézoïdale)."""
     idx = (freqs >= flo) & (freqs <= fhi)
-    return float(np.trapz(psd[idx], freqs[idx])) if idx.any() else 0.0
+    from scipy.integrate import trapezoid as _trapz
+    return float(_trapz(psd[idx], freqs[idx])) if idx.any() else 0.0
 
 def _style(ax, title='', xlabel='', ylabel='', grid=True):
     """Applique un style standard aux axes matplotlib."""
@@ -1060,3 +1061,223 @@ def run_pipeline(state='concentration', outdir=None):
 
 if __name__ == '__main__':
     run_pipeline(state='concentration', outdir=None)
+
+
+# ============================================================================
+# REGRESSION — FONCTIONS SUPPLEMENTAIRES POUR LE PIPELINE AVEC SCORES
+# ============================================================================
+# Ces fonctions s'ajoutent au pipeline existant (sans rien modifier).
+# Elles permettent de charger les donnees brutes (concentration + stress)
+# avec leurs scores depuis les CSV de scoring, en les ramenenant a 250 Hz.
+# ============================================================================
+
+def resample_to_250hz(raw_signal, fs_orig):
+    """
+    Reechantillonne un signal vers 250 Hz (requis par le pipeline fp2).
+
+    Pourquoi reechantillonner :
+      Concentration : OpenBCI a 200 Hz → 800 samples/epoch
+      Stress        : EMOTIV  a 128 Hz → 512 samples/epoch
+      Pipeline fp2  : 250 Hz           → 1000 samples/epoch
+
+    Methode : scipy.signal.resample (interpolation via FFT).
+    Cette methode preserve le contenu spectral sans distorsion.
+
+    Parametres :
+      raw_signal : array 1D (signal brut a fs_orig Hz)
+      fs_orig    : frequence d'echantillonnage originale (Hz)
+
+    Retourne :
+      array 1D a 250 Hz
+    """
+    from scipy.signal import resample as _resample
+    n_target = int(len(raw_signal) * FS / fs_orig)
+    return _resample(raw_signal, n_target)
+
+
+def load_concentration_with_scores(scored_csv_path, raw_conc_dir):
+    """
+    Charge les donnees de concentration brutes avec leurs scores.
+
+    Flux :
+      1. Lire scored_concentration.csv → mapping (file, epoch_idx) → conc_score
+      2. Pour chaque fichier .txt reference dans le CSV :
+         a. Lire le signal brut (col 1 = CH1 a 200 Hz)
+         b. Resampler 200 Hz → 250 Hz
+         c. Appliquer preprocess_signal() : HP + LP + Notch + DWT
+         d. Segmenter en epochs de 1000 samples (4s @ 250 Hz)
+         e. Rejeter les epochs avec amplitude > AMP_THR
+         f. Z-score normaliser
+         g. Attacher le conc_score depuis le CSV
+      3. Retourner (X, y_score, subjects, levels)
+
+    Arguments :
+      scored_csv_path : chemin vers scored_concentration.csv
+      raw_conc_dir    : chemin vers data/Dataset/Cognitive Load.../raw_data
+
+    Retourne :
+      X       (N, 1000) float32  signaux preprocesses @250 Hz
+      y_score (N,)      float32  scores concentration 0-10
+      subjects(N,)      int32    IDs sujets (anti data leakage)
+      levels  (N,)      int32    0=natural,1=low,2=mid,3=high (pour reference)
+    """
+    import pandas as pd
+    from pathlib import Path
+
+    LEVEL_CODE = {'natural': 0, 'lowlevel': 1, 'midlevel': 2, 'highlevel': 3}
+    FS_CONC    = 200    # Hz OpenBCI
+    COL_SIGNAL = 1      # Colonne CH1 dans les .txt
+
+    scored_csv = Path(scored_csv_path)
+    raw_dir    = Path(raw_conc_dir)
+    df_scores  = pd.read_csv(scored_csv)
+
+    X_list, y_list, subj_list, lvl_list = [], [], [], []
+    groups = df_scores.groupby(['task', 'file'])
+
+    print(f"[load_concentration] {len(df_scores)} epochs dans {len(groups)} fichiers")
+
+    for (task, fn), grp in groups:
+        filepath = raw_dir / task / fn
+        if not filepath.exists():
+            print(f"  [SKIP] {filepath.name}")
+            continue
+
+        # Lire signal brut
+        df_raw = pd.read_csv(filepath, header=None)
+        raw    = df_raw.iloc[1:, COL_SIGNAL].astype(float).values
+
+        # Resampler 200 Hz → 250 Hz
+        raw_250 = resample_to_250hz(raw, FS_CONC)
+
+        # Preprocessing identique au hardware (HP + LP + Notch + DWT)
+        sig_filt  = step2_highpass(raw_250)
+        sig_filt  = step3_lowpass(sig_filt)
+        sig_filt  = step4_notch(sig_filt)
+        sig_clean = step5_dwt(sig_filt)
+
+        # Segmenter sans overlap pour avoir des epochs independantes
+        # (overlap utilise pour le split par epoch_idx du CSV de scoring)
+        for _, row in grp.iterrows():
+            idx   = int(row['epoch_idx'])
+            start = idx * EPOCH_SAMPLES
+            end   = start + EPOCH_SAMPLES
+
+            if end > len(sig_clean):
+                continue
+
+            epoch = sig_clean[start:end]
+
+            # Rejet d'artifacts
+            if np.max(np.abs(epoch)) > AMP_THR:
+                continue
+
+            # Z-score
+            mu, sigma = epoch.mean(), epoch.std()
+            if sigma < 1e-9:
+                continue
+            epoch_norm = ((epoch - mu) / sigma).astype(np.float32)
+
+            X_list.append(epoch_norm)
+            y_list.append(float(row['conc_score']))
+            subj_list.append(int(row['subject']))
+            lvl_list.append(LEVEL_CODE.get(row['level'], -1))
+
+    X       = np.array(X_list,    dtype=np.float32)
+    y_score = np.array(y_list,    dtype=np.float32)
+    subjects= np.array(subj_list, dtype=np.int32)
+    levels  = np.array(lvl_list,  dtype=np.int32)
+
+    print(f"[load_concentration] {len(X)} epochs valides")
+    print(f"  natural={( levels==0).sum()}  low={(levels==1).sum()}"
+          f"  mid={(levels==2).sum()}  high={(levels==3).sum()}")
+    return X, y_score, subjects, levels
+
+
+def load_stress_with_scores(scored_csv_path, raw_stress_dir):
+    """
+    Charge les donnees de stress brutes avec leurs scores.
+
+    Flux :
+      1. Lire scored_stress.csv → mapping (file, epoch_idx) → stress_score
+      2. Pour chaque fichier .mat reference dans le CSV :
+         a. Charger Data (32, 3200), prendre canal 0 (AF3 @ 128 Hz)
+         b. Resampler 128 Hz → 250 Hz
+         c. Appliquer preprocess_signal() : HP + LP + Notch + DWT
+         d. Extraire l'epoch correspondante (epoch_idx * 1000 samples @ 250 Hz)
+         e. Rejet + Z-score
+         f. Attacher le stress_score depuis le CSV
+
+    Pourquoi canal AF3 (index 0) :
+      AF3 est l'electrode frontale gauche de l'EMOTIV.
+      La plus proche anatomiquement de Fp2 (electrode NeuroCap).
+      Les deux captent les memes oscillations frontales (theta/beta cognitifs).
+
+    Retourne :
+      X        (N, 1000) float32
+      y_score  (N,)      float32  scores stress 0-10
+      subjects (N,)      int32
+    """
+    import pandas as pd
+    import scipy.io
+    from pathlib import Path
+
+    FS_STRESS      = 128    # Hz EMOTIV
+    CHANNEL_STRESS = 0      # AF3 (frontal gauche)
+    EPOCH_ORIG     = 512    # 4s @ 128 Hz
+
+    scored_csv  = Path(scored_csv_path)
+    raw_dir     = Path(raw_stress_dir)
+    df_scores   = pd.read_csv(scored_csv)
+
+    X_list, y_list, subj_list = [], [], []
+    groups = df_scores.groupby('file')
+
+    print(f"[load_stress] {len(df_scores)} epochs dans {len(groups)} fichiers")
+
+    for fn, grp in groups:
+        filepath = raw_dir / fn
+        if not filepath.exists():
+            print(f"  [SKIP] {filepath.name}")
+            continue
+
+        mat    = scipy.io.loadmat(filepath)
+        signal_raw = mat['Data'][CHANNEL_STRESS, :].astype(float)
+
+        # Resampler 128 Hz → 250 Hz
+        signal_250 = resample_to_250hz(signal_raw, FS_STRESS)
+
+        # Preprocessing
+        sig_filt  = step2_highpass(signal_250)
+        sig_filt  = step3_lowpass(sig_filt)
+        sig_filt  = step4_notch(sig_filt)
+        sig_clean = step5_dwt(sig_filt)
+
+        for _, row in grp.iterrows():
+            idx   = int(row['epoch_idx'])
+            start = idx * EPOCH_SAMPLES
+            end   = start + EPOCH_SAMPLES
+
+            if end > len(sig_clean):
+                continue
+
+            epoch = sig_clean[start:end]
+
+            if np.max(np.abs(epoch)) > AMP_THR:
+                continue
+
+            mu, sigma = epoch.mean(), epoch.std()
+            if sigma < 1e-9:
+                continue
+            epoch_norm = ((epoch - mu) / sigma).astype(np.float32)
+
+            X_list.append(epoch_norm)
+            y_list.append(float(row['stress_score']))
+            subj_list.append(int(row['subject']))
+
+    X       = np.array(X_list,    dtype=np.float32)
+    y_score = np.array(y_list,    dtype=np.float32)
+    subjects= np.array(subj_list, dtype=np.int32)
+
+    print(f"[load_stress] {len(X)} epochs valides")
+    return X, y_score, subjects

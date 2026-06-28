@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import torch.nn as nn
-from DL_utils import N_CLASSES, CNNPreEncoder, dl_main
+from DL_utils_regression import N_CLASSES, CNNPreEncoder, dl_main_regression
 
 class LSTM_2L(nn.Module):
     """LSTM unidirectionnel 2 couches 64 unités avec CNNPreEncoder."""
@@ -22,4 +22,4 @@ class LSTM_2L(nn.Module):
         return self.fc(out[:, -1, :])     # Dernier pas de temps
 
 if __name__ == "__main__":
-    dl_main("LSTM_2L", LSTM_2L)
+    dl_main_regression("LSTM_2L", LSTM_2L)

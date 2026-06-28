@@ -29,43 +29,44 @@ Structure   : Easy Medical Device — 2025-2026
     DWT db4 niveau 4 → 5 sous-bandes (δ, θ, α, β, γ)
     Par sous-bande : mean, std, energy, entropy_shannon
     Ref : "Multiresolution Analysis in EEG Signal Feature Engineering
-           for Epileptic Seizure Detection" (2018)
+           for Epileptic Seizure Detection" (2018) — FE-2
     Justification : DWT-db4 + SVM surpasse toutes les combinaisons.
                     Les features statistiques des sous-bandes capturent
                     la distribution de l'énergie à chaque résolution.
 
-  Catégorie 5 — Features statistiques texturales (~15 features)  ★ NOUVEAU
+  Catégorie 5 — Features statistiques texturales (~20 features)  ★ ENRICHI
     Skewness, kurtosis par sous-bande + signal global
     IQR, RMS, crest factor, peak-to-peak
+    + median, max_val, min_val, MAD  ← ajoutés depuis FE-4
     Ref : "NeuroFeat: An adaptive neurological EEG feature engineering
-           approach for improved classification of MDD" (2025)
-    Résultat : accuracy 99.22% avec Cosine KNN
-    Justification : Les features texturales (moments statistiques d'ordre
-                    supérieur) capturent l'asymétrie et la forme de la
-                    distribution du signal, pas juste sa puissance.
+           approach for improved classification of MDD" (2026) — FE-4
+    23 features statistiques : mean, std, variance, médiane, max, min,
+    range, RMS, énergie, AM, entropies Shannon/Log, kurtosis, skewness,
+    MAD, MSD (FE-4 Section 2).
 
-  Catégorie 6 — Features non-linéaires & entropies (~10 features)  ★ NOUVEAU
-    Approximate Entropy (ApEn), Sample Entropy (SampEn),
-    Permutation Entropy (PE), Spectral Entropy,
-    Higuchi Fractal Dimension (HFD),
-    Detrended Fluctuation Analysis (DFA) exposant α
-    Ref : "Age prediction on EEG signals via hybrid feature engineering
-           approach" (2025)
-    Justification : Les entropies mesurent la complexité/régularité du
-                    signal. Un signal concentré est PLUS régulier (ApEn bas)
-                    qu'un signal stressé (ApEn haut). HFD capture la
-                    dimension fractale = auto-similarité à différentes
-                    échelles temporelles.
+  Catégorie 6 — Features non-linéaires & entropies (~7 features)  ★ ENRICHI
+    ApEn, SampEn, PermEn, SpectralEn, HFD
+    + Renyi entropy (α=2)  ← ajouté depuis FE-1
+    + Log energy entropy    ← ajouté depuis FE-4
+    Ref FE-1 : Vishal A S et al. (2025) — entropies Shannon + Renyi sur PSD
+    Ref FE-4 : NeuroFeat (2026) — entropies Shannon/Log par niveau DWT
 
   Catégorie 7 — Transition Patterns simplifiés (~6 features)  ★ NOUVEAU
-    Inspiré de QuadTPat (Cambay et al. 2024)
+    Inspiré de QuadTPat (Cambay et al. 2024) — FE-3
     Histogramme des transitions : up, down, flat sur fenêtres glissantes
-    Ref : "QuadTPat: Quadruple Transition Pattern-based explainable
-           feature engineering model for stress detection" (Sci Rep 2024)
-    Résultat : 92.95% (10-fold) et 73.63% (LOSO)
-    Simplification : au lieu des 4-tuples complets de QuadTPat,
-                     on utilise des triplets (plus rapide, compatible
-                     avec la contrainte latence NeuroCap < 40 ms)
+    Ref : Sci Rep 2024 — 92.95% (10-fold) et 73.63% (LOSO)
+    Simplification : triplets au lieu des 4-tuples (latence < 40 ms)
+
+  Catégorie 8 — NeuroFeat Kernels Texturaux Binaires (~9 features)  ★ NOUVEAU
+    3 noyaux de seuillage statistique sur fenêtres glissantes :
+      φ₁(ρ, M) = 1 si ρ ≥ μ  (mean threshold)
+      φ₂(ρ, M) = 1 si ρ ≥ M̃  (median threshold)
+      φ₃(ρ, M) = 1 si ρ ≥ σ  (std threshold)
+    Fenêtre ω = ⌈√fs⌉ = 16 samples @ 250 Hz → matrice 4×4
+    Par fenêtre : séquence binaire 16 bits → décimal (1 valeur/kernel)
+    Features : mean, std, entropy de la distribution des décimaux × 3 kernels
+    Ref : NeuroFeat (2026) — FE-4 Section 2
+    Ablation study : features texturales seules → 86.5% accuracy
 
 === PIPELINE ===
   Epoch (1000 éch. @ 250 Hz)
@@ -73,11 +74,12 @@ Structure   : Easy Medical Device — 2025-2026
     → Catégorie 2 : Ratios cognitifs → 5 ratios
     → Catégorie 3 : Hjorth + temporelles → 6 features
     → Catégorie 4 : DWT db4 → 5 sous-bandes × 4 stats = 20 features
-    → Catégorie 5 : Statistiques texturales → ~15 features
-    → Catégorie 6 : Entropies + non-linéaire → ~10 features
-    → Catégorie 7 : Transition patterns → 6 features
+    → Catégorie 5 : Statistiques texturales → 20 features  (FE-4 enrichi)
+    → Catégorie 6 : Entropies + non-linéaire → 7 features  (FE-1 enrichi)
+    → Catégorie 7 : Transition patterns → 6 features       (FE-3)
+    → Catégorie 8 : NeuroFeat kernels binaires → 9 features (FE-4 nouveau)
     ─────────────────────────────────────────────────────
-    TOTAL : ~67-80 features par epoch
+    TOTAL : ~78 features par epoch
     Temps de calcul : < 40 ms par epoch (compatible CdC Section 5.5)
 
 =============================================================================
@@ -133,7 +135,8 @@ def _band_power(freqs, psd, flo, fhi):
     idx = (freqs >= flo) & (freqs <= fhi)
     if not idx.any():
         return 0.0
-    return float(np.trapz(psd[idx], freqs[idx]))
+    from scipy.integrate import trapezoid as _trapz
+    return float(_trapz(psd[idx], freqs[idx]))
 
 def extract_psd_features(epoch):
     """
@@ -294,50 +297,60 @@ def extract_dwt_subband_features(epoch):
 
 
 # ============================================================================
-# CATÉGORIE 5 — Features statistiques texturales (~15 features)
+# CATÉGORIE 5 — Features statistiques texturales (20 features)
 # Référence : "NeuroFeat: An adaptive neurological EEG feature engineering
-#              approach for improved classification of MDD" (2025)
+#              approach for improved classification of MDD" (2026) — FE-4
 #
-# Principe :
-#   NeuroFeat extrait des "features texturales" via les moments statistiques
-#   d'ordre supérieur (skewness = asymétrie, kurtosis = aplatissement) sur
-#   les signaux décomposés en DWT. Ces features capturent la FORME de la
-#   distribution du signal, pas juste sa puissance.
+# FE-4 Section 2 liste 23 features statistiques :
+#   mean, std, variance, médiane, max, min, range, RMS, énergie, AM,
+#   entropies Shannon/Log, kurtosis, skewness, MAD, MSD
 #
-#   skewness > 0 : queue droite plus longue (artefacts positifs ?)
-#   kurtosis > 3 : distribution à queues lourdes (pics, artefacts)
-#   IQR : robuste aux outliers, mesure la dispersion centrale
-#   Crest factor : rapport pic/RMS, détecte les artefacts transitoires
-#
-#   Résultat NeuroFeat : 99.22% accuracy avec Cosine KNN sur 30 classifieurs
+# Ce qu'on calcule ici (les stats pures — entropies en Cat 6) :
+#   Global (10) : skewness, kurtosis, IQR, RMS, peak_to_peak, crest_factor
+#                 + median, max_val, min_val, MAD  ← ajoutés FE-4
+#   Par sous-bande DWT (10) : skewness + kurtosis × 5 bandes
+#   Total : 20 features
 # ============================================================================
 
 def extract_textural_features(epoch):
     """
-    Catégorie 5 : Features statistiques texturales (NeuroFeat 2025).
-    
-    Features sur le signal GLOBAL :
-      skewness, kurtosis, IQR, RMS, crest_factor, peak_to_peak
-    
-    Features sur les SOUS-BANDES DWT (skewness + kurtosis par sous-bande) :
-      dwt_delta_skew, dwt_delta_kurt, ..., dwt_gamma_skew, dwt_gamma_kurt
-    
-    Total : 6 (global) + 10 (sous-bandes) = 16 features
+    Catégorie 5 : Features statistiques texturales — NeuroFeat 2026 (FE-4).
+
+    Features sur le signal GLOBAL (10) :
+      skewness, kurtosis, IQR, RMS, crest_factor, peak_to_peak,
+      median, max_val, min_val, MAD
+
+    Features sur les SOUS-BANDES DWT (10) :
+      dwt_{band}_skew + dwt_{band}_kurt pour 5 sous-bandes
+
+    Total : 10 (global) + 10 (sous-bandes) = 20 features
+
+    FE-4 ablation : features statistiques seules → 68 % accuracy
+                    features texturales (Cat 5+8) → 86.5 %
+                    combinaison tout → 91.5 % (sans L-SBWOA)
     """
     features = {}
 
-    # --- Features globales ---
-    features['skewness'] = float(skew(epoch))
-    features['kurtosis'] = float(kurtosis(epoch))
-    features['IQR'] = float(iqr(epoch))
-    features['RMS'] = float(np.sqrt(np.mean(epoch**2)))
+    # --- Features globales (6 historiques) ---
+    features['skewness']     = float(skew(epoch))
+    features['kurtosis']     = float(kurtosis(epoch))
+    features['IQR']          = float(iqr(epoch))
+    features['RMS']          = float(np.sqrt(np.mean(epoch**2)))
     features['peak_to_peak'] = float(np.max(epoch) - np.min(epoch))
     rms = features['RMS'] + 1e-12
     features['crest_factor'] = float(np.max(np.abs(epoch)) / rms)
 
-    # --- Skewness et kurtosis par sous-bande DWT ---
-    # Ref NeuroFeat : "textural features through statistical thresholds
-    #                  and moment analysis from signals decomposed via DWT"
+    # --- Features globales ajoutées depuis FE-4 (4 nouvelles) ---
+    # median : robuste aux outliers, complémente la mean
+    features['median']   = float(np.median(epoch))
+    # max_val / min_val : bornes du signal, indicateurs d'artefacts
+    features['max_val']  = float(np.max(epoch))
+    features['min_val']  = float(np.min(epoch))
+    # MAD = Mean Absolute Deviation : dispersion robuste (alternative à std)
+    # MAD(x) = mean(|xᵢ − mean(x)|)
+    features['MAD']      = float(np.mean(np.abs(epoch - np.mean(epoch))))
+
+    # --- Skewness et kurtosis par sous-bande DWT (10 features) ---
     coeffs = pywt.wavedec(epoch, WAVELET, level=DWT_LEVEL)
     subband_names = ['delta', 'theta', 'alpha', 'beta', 'gamma']
 
@@ -486,16 +499,58 @@ def _permutation_entropy(x, order=3, delay=1):
 
 def _spectral_entropy(epoch):
     """
-    Spectral Entropy — Shannon entropy sur la PSD normalisée.
-    
+    Spectral Entropy (Shannon) — sur la PSD normalisée.
     Mesure l'uniformité de la distribution spectrale.
-    Signal mono-fréquentiel → SE basse. Bruit blanc → SE maximale.
     """
     f, psd = _psd_welch(epoch)
-    # Normaliser la PSD en distribution de probabilité
     psd_norm = psd / (np.sum(psd) + 1e-12)
     psd_norm = psd_norm[psd_norm > 0]
     return float(-np.sum(psd_norm * np.log2(psd_norm)))
+
+
+def _renyi_entropy(epoch, alpha=2):
+    """
+    Entropie de Renyi (ordre α=2) sur la PSD normalisée — FE-1.
+
+    Ref : Vishal A S et al. (2025) — entropie de Renyi α=2 utilisée
+          en complément de Shannon sur le dataset DREAMER (valence 98.6%).
+
+    Formule : H_α(X) = 1/(1-α) × log₂(Σ pᵢ^α)
+    Pour α=2 : H₂ = -log₂(Σ pᵢ²)  (collision entropy)
+
+    Interprétation :
+      Renyi α=2 est plus sensible que Shannon aux distributions à queue
+      épaisse → détecte mieux les pics de stress (puissance concentrée
+      sur quelques fréquences).
+    """
+    f, psd = _psd_welch(epoch)
+    psd_norm = psd / (np.sum(psd) + 1e-12)
+    psd_norm = psd_norm[psd_norm > 0]
+    sum_sq = np.sum(psd_norm ** alpha)
+    if sum_sq <= 0:
+        return 0.0
+    return float((1.0 / (1.0 - alpha)) * np.log2(sum_sq + 1e-12))
+
+
+def _log_energy_entropy(epoch):
+    """
+    Log Energy Entropy — FE-4 (NeuroFeat).
+
+    Ref : Choudhury et al. (2026) — 23 features statistiques incluant
+          entropies Shannon et Log sur le signal et ses composantes DWT.
+
+    Formule : LogE = Σ log₂(xᵢ²) pour |xᵢ| > ε
+
+    Interprétation :
+      Mesure l'énergie logarithmique du signal.
+      Signal faible (repos) → LogE très négatif.
+      Signal fort (stress, concentration active) → LogE moins négatif.
+      Complémentaire à Shannon car elle ne normalise pas.
+    """
+    x = epoch[np.abs(epoch) > 1e-10]
+    if len(x) == 0:
+        return 0.0
+    return float(np.sum(np.log2(x ** 2)))
 
 
 def _higuchi_fractal_dimension(x, kmax=10):
@@ -539,24 +594,27 @@ def _higuchi_fractal_dimension(x, kmax=10):
 
 def extract_nonlinear_features(epoch):
     """
-    Catégorie 6 : Features non-linéaires et entropies.
-    
-    Ref : "Age prediction on EEG signals via hybrid feature engineering
-           approach" (2025)
-    
-    Ces features capturent des aspects du signal que les puissances
-    spectrales ne voient pas : la RÉGULARITÉ, la COMPLEXITÉ et
-    l'AUTO-SIMILARITÉ à différentes échelles.
+    Catégorie 6 : Features non-linéaires et entropies (7 features).
+
+    Existant (5) — Age prediction hybrid 2025 :
+      ApEn, SampEn, PermEn, SpectralEn (Shannon), HFD
+
+    Ajouté (2) :
+      RenyiEn (α=2) — FE-1 Vishal A S et al. (2025)
+        Sensible aux distributions à queue épaisse (pics de stress)
+      LogEnergyEn   — FE-4 NeuroFeat Choudhury et al. (2026)
+        Énergie logarithmique du signal, complémentaire à Shannon
     """
-    # Sous-échantillonner l'epoch pour la vitesse (< 5 ms)
     epoch_sub = epoch[::2] if len(epoch) > 500 else epoch
 
     return {
-        'ApEn': _approximate_entropy(epoch_sub, m=2, r_factor=0.2),
-        'SampEn': _sample_entropy(epoch_sub, m=2, r_factor=0.2),
-        'PermEn': _permutation_entropy(epoch, order=3, delay=1),
-        'SpectralEn': _spectral_entropy(epoch),
-        'HFD': _higuchi_fractal_dimension(epoch, kmax=10),
+        'ApEn':         _approximate_entropy(epoch_sub, m=2, r_factor=0.2),
+        'SampEn':       _sample_entropy(epoch_sub, m=2, r_factor=0.2),
+        'PermEn':       _permutation_entropy(epoch, order=3, delay=1),
+        'SpectralEn':   _spectral_entropy(epoch),
+        'HFD':          _higuchi_fractal_dimension(epoch, kmax=10),
+        'RenyiEn':      _renyi_entropy(epoch, alpha=2),
+        'LogEnergyEn':  _log_energy_entropy(epoch),
     }
 
 
@@ -646,50 +704,138 @@ def extract_transition_features(epoch, threshold=0.01):
 
 
 # ============================================================================
+# CATÉGORIE 8 — NeuroFeat Kernels Texturaux Binaires (9 features)
+# Référence : "NeuroFeat: An adaptive neurological EEG feature engineering
+#              approach for improved classification of MDD" (2026) — FE-4
+#
+# Principe (FE-4 Section 2) :
+#   1. Découper le signal en fenêtres de ω = ⌈√fs⌉ = 16 samples @ 250 Hz
+#      → chaque fenêtre est une matrice 4×4.
+#   2. Appliquer 3 noyaux de seuillage statistique :
+#        φ₁(ρ, M) = 1 si ρ ≥ μ   (mean threshold)
+#        φ₂(ρ, M) = 1 si ρ ≥ M̃   (median threshold)
+#        φ₃(ρ, M) = 1 si ρ ≥ σ   (std threshold)
+#      → 3 séquences binaires 16-bit → 3 entiers décimaux par fenêtre.
+#   3. Sur l'ensemble des fenêtres, extraire :
+#        mean, std, entropy de la distribution des décimaux
+#      → 3 stats × 3 kernels = 9 features.
+#
+# Fenêtre adaptative :
+#   Pour fs ≥ 4 Hz : ω = ⌈√fs⌉²... mais le paper donne fs=256→16 frames
+#   Donc on interprète : ω = ⌈√fs⌉ = 16 pour fs=250 Hz.
+#   Reshape 16→4×4 (côté = √ω = 4).
+#
+# Ablation study (FE-4) :
+#   Features texturales seules → 86.5 % accuracy (sans optimisation)
+#   Features statistiques seules → 68 %
+#   Combinaison + L-SBWOA → 99.22 %
+# ============================================================================
+
+def extract_neurofeat_features(epoch):
+    """
+    Catégorie 8 : NeuroFeat kernels texturaux binaires — FE-4 (2026).
+
+    3 kernels × 3 stats (mean, std, entropy) = 9 features.
+
+    nf_mean_thr_mean   : valeur décimale moyenne (kernel φ₁ = mean)
+    nf_mean_thr_std    : dispersion des décimaux (kernel φ₁)
+    nf_mean_thr_ent    : entropie de la distribution (kernel φ₁)
+    nf_med_thr_*       : idem pour kernel φ₂ (median threshold)
+    nf_std_thr_*       : idem pour kernel φ₃ (std threshold)
+    """
+    # ω = ⌈√fs⌉ = ⌈√250⌉ = 16 samples → matrice 4×4
+    omega  = int(np.ceil(np.sqrt(FS)))          # 16
+    side   = int(np.sqrt(omega))                # 4
+    omega  = side * side                        # 16 (carré parfait)
+
+    n_windows = len(epoch) // omega
+    if n_windows == 0:
+        zero = {f'nf_{k}_{s}': 0.0
+                for k in ['mean_thr', 'med_thr', 'std_thr']
+                for s in ['mean', 'std', 'ent']}
+        return zero
+
+    dec_vals = {'mean_thr': [], 'med_thr': [], 'std_thr': []}
+
+    for w in range(n_windows):
+        seg = epoch[w * omega: (w + 1) * omega]
+        mat = seg.reshape(side, side)
+
+        mu  = np.mean(mat)
+        med = np.median(mat)
+        sig = np.std(mat)
+
+        for key, thr in [('mean_thr', mu), ('med_thr', med), ('std_thr', sig)]:
+            bits = (mat.flatten() >= thr).astype(np.uint8)
+            # Convertir la séquence binaire 16-bit en entier décimal
+            decimal = int(np.packbits(bits, bitorder='big').view(np.uint16)[0])
+            dec_vals[key].append(decimal)
+
+    features = {}
+    for key, vals_list in dec_vals.items():
+        vals = np.array(vals_list, dtype=float)
+        # Entropie de Shannon sur l'histogramme des valeurs décimales
+        hist, _ = np.histogram(vals, bins=min(20, len(vals)), density=False)
+        hist    = hist[hist > 0].astype(float)
+        hist   /= hist.sum() + 1e-12
+        ent     = float(-np.sum(hist * np.log2(hist + 1e-12)))
+
+        features[f'nf_{key}_mean'] = float(np.mean(vals))
+        features[f'nf_{key}_std']  = float(np.std(vals))
+        features[f'nf_{key}_ent']  = ent
+
+    return features  # 9 features
+
+
+# ============================================================================
 # FONCTION PRINCIPALE : extraction de TOUTES les features pour une epoch
 # ============================================================================
 
 def extract_all_features(epoch):
     """
-    Extrait les ~80 features complètes pour une epoch EEG.
-    
+    Extrait les 78 features complètes pour une epoch EEG.
+
     Entrée : epoch (np.array, 1000 échantillons, normalisé z-score)
-    Sortie : dict avec toutes les features
-    
-    Catégories :
-      1. PSD Welch (5)         — CdC NeuroCap Sec. 2.3
-      2. Ratios cognitifs (5)  — CdC Sec. 2.5.1 + Salam 2026
-      3. Hjorth + temporel (6) — Samsa 2026
-      4. DWT sous-bandes (20)  — Multiresolution Analysis 2018
-      5. Texturales (16)       — NeuroFeat 2025
-      6. Non-linéaires (5)     — Age prediction hybrid 2025
-      7. Transitions (6)       — QuadTPat 2024
-      ──────────────────────
-      TOTAL : ~63 features
+    Sortie : dict ordonné avec toutes les features
+
+    Catégories et articles sources :
+      1. PSD Welch (5)          — FE-1 (Vishal 2025), FE-2 (Martin 2018)
+      2. Ratios cognitifs (5)   — CdC NeuroCap + Salam 2026
+      3. Hjorth + temporel (6)  — Samsa 2026
+      4. DWT sous-bandes (20)   — FE-2 (Martin 2018) : db4, 4 niveaux
+      5. Texturales (20)        — FE-4 (NeuroFeat 2026) enrichi
+      6. Non-linéaires (7)      — Age prediction 2025 + FE-1 + FE-4
+      7. Transitions (6)        — FE-3 (QuadTPat 2024) simplifié
+      8. NeuroFeat kernels (9)  — FE-4 (NeuroFeat 2026) : φ₁/φ₂/φ₃
+      ────────────────────────
+      TOTAL : 78 features
     """
     features = {}
 
-    # Catégorie 1 : PSD
+    # Cat 1 : PSD Welch
     psd_feats = extract_psd_features(epoch)
     features.update(psd_feats)
 
-    # Catégorie 2 : Ratios
+    # Cat 2 : Ratios cognitifs
     features.update(extract_ratio_features(psd_feats))
 
-    # Catégorie 3 : Hjorth + temporel
+    # Cat 3 : Hjorth + temporel
     features.update(extract_temporal_features(epoch))
 
-    # Catégorie 4 : DWT sous-bandes
+    # Cat 4 : DWT sous-bandes
     features.update(extract_dwt_subband_features(epoch))
 
-    # Catégorie 5 : Texturales
+    # Cat 5 : Texturales (enrichi FE-4)
     features.update(extract_textural_features(epoch))
 
-    # Catégorie 6 : Non-linéaires
+    # Cat 6 : Non-linéaires + Renyi + LogEnergy (enrichi FE-1, FE-4)
     features.update(extract_nonlinear_features(epoch))
 
-    # Catégorie 7 : Transitions
+    # Cat 7 : Transitions (FE-3)
     features.update(extract_transition_features(epoch))
+
+    # Cat 8 : NeuroFeat kernels binaires (FE-4 — NOUVEAU)
+    features.update(extract_neurofeat_features(epoch))
 
     return features
 
@@ -756,16 +902,16 @@ def extract_features_batch(X_epochs, y_labels=None, verbose=True):
         print(f"\n✅ Extraction terminée")
         print(f"   Shape : {features_matrix.shape} ({len(feature_names)} features)")
         print(f"   Temps : {elapsed:.1f}s ({elapsed/len(X_epochs)*1000:.1f} ms/epoch)")
-        print(f"   NaN/Inf remplacés par 0 : {np.sum(np.isnan(all_features))}")
-        print(f"\n   Catégorie 1 (PSD)         : 5 features")
-        print(f"   Catégorie 2 (Ratios)      : 5 features")
-        print(f"   Catégorie 3 (Hjorth+temp) : 6 features")
-        print(f"   Catégorie 4 (DWT sub)     : 20 features")
-        print(f"   Catégorie 5 (Texturales)  : {sum(1 for n in feature_names if 'skew' in n or 'kurt' in n or n in ['IQR','RMS','peak_to_peak','crest_factor','skewness','kurtosis'])} features")
-        print(f"   Catégorie 6 (Non-lin)     : 5 features")
-        print(f"   Catégorie 7 (Transitions) : 6 features")
-        print(f"   ─────────────────────────────")
-        print(f"   TOTAL                     : {len(feature_names)} features")
+        print(f"\n   Cat 1  PSD Welch              :  5 features  [FE-1, FE-2]")
+        print(f"   Cat 2  Ratios cognitifs        :  5 features  [CdC]")
+        print(f"   Cat 3  Hjorth + temporel       :  6 features  [Samsa 2026]")
+        print(f"   Cat 4  DWT sous-bandes (db4)   : 20 features  [FE-2]")
+        print(f"   Cat 5  Texturales enrichies    : 20 features  [FE-4]")
+        print(f"   Cat 6  Non-linéaires + entrop. :  7 features  [FE-1, FE-4]")
+        print(f"   Cat 7  Transitions (QuadTPat)  :  6 features  [FE-3]")
+        print(f"   Cat 8  NeuroFeat kernels φ₁₂₃  :  9 features  [FE-4 NOUVEAU]")
+        print(f"   ─────────────────────────────────────────────────────")
+        print(f"   TOTAL                          : {len(feature_names)} features")
 
     return features_matrix, feature_names
 
@@ -778,10 +924,10 @@ def main():
     """
     Pipeline d'extraction :
       1. Localise les données augmentées (datasets_augmented/)
-      2. Extrait les features (~63) pour chaque expérience (A, B, C, D, FULL)
+      2. Extrait les 78 features pour chaque expérience (A, B, C, D, FULL)
       3. Extrait les features pour val et test
       4. Sauvegarde les matrices de features, les labels et les subject_ids
-         dans data/Features/datasets_features_advanced/
+         dans features/Features_eng/
     """
     # --- Chemins ---
     script_dir = Path(__file__).resolve().parent

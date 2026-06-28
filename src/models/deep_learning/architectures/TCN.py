@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import torch.nn as nn
-from DL_utils import N_CLASSES, dl_main
+from DL_utils_regression import N_CLASSES, dl_main_regression
 
 class TCNBlock(nn.Module):
     def __init__(self, in_ch, out_ch, dilation=1, dropout=0.2):
@@ -37,4 +37,4 @@ class TCN(nn.Module):
         return self.fc(self.net(x))
 
 if __name__ == '__main__':
-    dl_main("TCN", TCN)
+    dl_main_regression("TCN", TCN)

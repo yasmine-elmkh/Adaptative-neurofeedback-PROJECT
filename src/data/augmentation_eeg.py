@@ -164,7 +164,8 @@ def _psd(x, nperseg=256):
 def _band_power(freqs, psd, flo, fhi):
     """Intégration trapézoïdale de la PSD sur [flo, fhi]."""
     idx = (freqs >= flo) & (freqs <= fhi)
-    return float(np.trapz(psd[idx], freqs[idx])) if idx.any() else 0.0
+    from scipy.integrate import trapezoid as _trapz
+    return float(_trapz(psd[idx], freqs[idx])) if idx.any() else 0.0
 
 def _compute_ratios(epoch):
     """

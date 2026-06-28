@@ -5,7 +5,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pathlib import Path; 
 import torch.nn as nn
-from DL_utils import N_CLASSES, dl_main
+from DL_utils_regression import N_CLASSES, dl_main_regression
 
 class CNN1D(nn.Module):
     def __init__(self, n_classes=N_CLASSES):
@@ -20,4 +20,4 @@ class CNN1D(nn.Module):
         return self.fc(self.features(x))
 
 if __name__ == '__main__':
-    dl_main("CNN1D", CNN1D)
+    dl_main_regression("CNN1D", CNN1D)

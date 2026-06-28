@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pathlib import Path;
 import torch, torch.nn as nn
-from DL_utils import N_CLASSES, dl_main
+from DL_utils_regression import N_CLASSES, dl_main_regression
 
 class MultiScaleSTFT(nn.Module):
     """Crée un 'volume' 3D : (batch, 1, n_scales, freq, time)."""
@@ -55,4 +55,4 @@ class CNN3D(nn.Module):
         return self.fc(self.conv(vol))
 
 if __name__ == '__main__':
-    dl_main("CNN3D", CNN3D)
+    dl_main_regression("CNN3D", CNN3D)

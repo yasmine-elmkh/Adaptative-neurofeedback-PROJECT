@@ -62,6 +62,7 @@ Référence : CdC NeuroCap Sec. 2.3 | Samsa 2026 (N°17) | Salam 2026 (N°15)
 
 import numpy as np
 from scipy import signal
+from scipy.integrate import trapezoid as _trapz
 import os
 from pathlib import Path
 import sys
@@ -136,7 +137,7 @@ def _band_power(freqs, psd, flo, fhi):
     idx = (freqs >= flo) & (freqs <= fhi)
     if not idx.any():
         return 0.0
-    return float(np.trapz(psd[idx], freqs[idx]))
+    return float(_trapz(psd[idx], freqs[idx]))
 
 
 def get_feature_vector(epoch):

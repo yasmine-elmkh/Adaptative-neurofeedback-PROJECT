@@ -1,20 +1,11 @@
 """
-NeuroCap — Diagnostic Complet : Confound Inter-Dataset + Overfitting
-=====================================================================
-Ce script analyse POURQUOI les metriques sont a 99-100% et prouve
-que le probleme n'est PAS de l'overfitting classique mais un CONFOUND.
-
-CONFOUND = le label (concentration vs stress) est parfaitement correle
-avec la source (Cognitive Load dataset vs SAM40 dataset).
-Le modele apprend a distinguer les 2 appareils EEG, pas les etats cognitifs.
-
-PREUVES generees par ce script :
-  1. Distribution des subject_ids par classe (montre la correlation parfaite)
-  2. t-SNE / PCA des epochs bruts (montre 2 clusters = 2 datasets)
-  3. Test du confound : classifier "dataset source" au lieu de "etat cognitif"
-  4. Analyse spectrale : PSD moyenne par dataset (montre les signatures hardware)
-  5. Rapport d'overfitting existant (lecture des metrics.json)
-  6. Recommandations pour le rapport PFE
+NeuroCap — Diagnostic qualité des données de régression
+=========================================================
+Analyses par target (conc, stress) :
+  1. Distribution des sujets et scores
+  2. PCA / t-SNE des epochs (séparabilité inter-sujets)
+  3. Analyse spectrale (PSD moyenne par sujet / niveau de difficulté)
+  4. Bilan des métriques de régression (lecture des metrics.json)
 
 Usage : python diagnostic_confound.py
 """
@@ -29,597 +20,367 @@ import seaborn as sns
 from pathlib import Path
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-from sklearn.metrics import accuracy_score, f1_score
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import cross_val_score, LeaveOneGroupOut
 from scipy import signal as scipy_signal
 import warnings
 warnings.filterwarnings('ignore')
 
-# ============================================================================
-# CHEMINS
-# ============================================================================
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-AUGMENTED_DIR = PROJECT_ROOT / "data" / "Augmentation" / "datasets_augmented"
-MERGED_DIR = PROJECT_ROOT / "data" / "Merge_datasets" / "datasets_merged"
-OUTPUT_BASE = PROJECT_ROOT / "reports" / "deep_learning" / "DL_outputs"
-DIAG_DIR = PROJECT_ROOT / "reports" / "deep_learning" / "diagnostic_confound"
+# ─── Chemins ──────────────────────────────────────────────────────────────────
+PROJECT_ROOT   = Path(__file__).resolve().parents[3]
+REGRESSION_DIR = PROJECT_ROOT / "data" / "Regression" / "augmented"
+DL_OUTPUT_BASE = PROJECT_ROOT / "reports" / "Regression" / "DL"
+DIAG_DIR       = PROJECT_ROOT / "reports" / "Regression" / "diagnostic"
 DIAG_DIR.mkdir(parents=True, exist_ok=True)
 
 ALL_MODELS = [
-    "CNN1D", "CNN2D", "CNN3D", "EEGNet", "TCN", "CNN_LSTM", "CNN_GRU" ,
-    "LSTM_1L", "LSTM_2L", "BiLSTM_1L", "BiLSTM_2L",
-    "GRU_1L", "GRU_2L", "BiGRU_1L", "BiGRU_2L",
-    "LSTM_Att", "BiLSTM_Att", "GRU_Att", "BiGRU_Att",
+    "CNN1D", "CNN2D", "CNN3D", "EEGNet", "TCN",
+    "CNN_LSTM_Att", "CNN_GRU_Att",
+    "LSTM_1L", "LSTM_2L", "LSTM_Att",
+    "BiLSTM_1L", "BiLSTM_2L", "BiLSTM_Att",
+    "GRU_1L", "GRU_2L", "GRU_Att",
+    "BiGRU_1L", "BiGRU_2L", "BiGRU_Att",
 ]
+TARGETS     = ["conc", "stress"]
 EXPERIMENTS = ["A", "B", "C", "D", "FULL"]
+FS          = 250
 
-FS = 250
+
+def _load_target(target: str, exp: str = "A"):
+    """Charge X, y_score, subject_ids pour un target."""
+    d = REGRESSION_DIR / target
+    X    = np.load(d / f"X_train_{exp}.npy")
+    y    = np.load(d / f"y_train_{exp}.npy").astype(np.float32)
+    sids = None
+    for name in [f"subject_ids_train_{exp}.npy", "subject_ids_train.npy"]:
+        p = d / name
+        if p.exists():
+            sids = np.load(p); break
+    return X, y, sids
 
 
-# ============================================================================
-# 1. PREUVE DU CONFOUND : CORRELATION SUJET ↔ LABEL
-# ============================================================================
-def test1_subject_label_correlation():
+# ─── Test 1 : Distribution des scores par sujet ────────────────────────────
+def test1_score_distribution():
     """
-    Montre que TOUS les sujets 0-14 (Cognitive Load) sont Concentration (y=0)
-    et TOUS les sujets 15+ (SAM40) sont Stress (y=1).
-    => Le label encode la SOURCE du dataset, pas l'etat cognitif.
+    Vérifie que les scores sont bien distribués (0-10) par sujet.
+    Détecte les sujets dont les scores sont trop uniformes (peu de variance).
     """
-    print("\n" + "=" * 70)
-    print("TEST 1 : Correlation sujet <-> label (preuve du confound)")
-    print("=" * 70)
+    print("\n" + "=" * 65)
+    print("TEST 1 : Distribution des scores par sujet et par target")
+    print("=" * 65)
 
-    # Charger les donnees fusionnees
-    X_path = MERGED_DIR / "X_merged.npy"
-    y_path = MERGED_DIR / "y_merged.npy"
-    s_path = MERGED_DIR / "subject_ids_merged.npy"
+    fig, axes = plt.subplots(1, 2, figsize=(16, 5))
+    fig.suptitle("Distribution des scores de régression par sujet",
+                 fontsize=13, fontweight="bold")
 
-    if not all(p.exists() for p in [X_path, y_path, s_path]):
-        # Fallback : utiliser les donnees augmentees (exp A = original)
-        X_path = AUGMENTED_DIR / "X_train_A.npy"
-        y_path = AUGMENTED_DIR / "y_train_A.npy"
-        s_path = AUGMENTED_DIR / "subject_ids_train_A.npy"
+    for i, target in enumerate(TARGETS):
+        try:
+            X, y, sids = _load_target(target)
+        except FileNotFoundError:
+            print(f"  {target} : données introuvables")
+            continue
 
-    if not all(p.exists() for p in [X_path, y_path, s_path]):
-        print("  Fichiers non trouves. Ignorant ce test.")
-        return None
+        print(f"\n  {target.upper()} : {len(X)} epochs | "
+              f"{len(np.unique(sids)) if sids is not None else '?'} sujets | "
+              f"Score [min={y.min():.2f}, max={y.max():.2f}, "
+              f"mean={y.mean():.2f}, std={y.std():.2f}]")
 
-    X = np.load(X_path)
-    y = np.load(y_path)
-    sids = np.load(s_path)
+        ax = axes[i]
+        if sids is not None:
+            unique_subj = np.unique(sids)
+            means = [y[sids == s].mean() for s in unique_subj]
+            stds  = [y[sids == s].std()  for s in unique_subj]
+            ax.bar(range(len(unique_subj)), means, yerr=stds,
+                   color="#2980B9" if target == "conc" else "#E74C3C",
+                   alpha=0.8, capsize=3)
+            ax.set_xlabel("Sujet (index)")
 
-    print(f"  Dataset : {len(X)} epochs, {len(np.unique(sids))} sujets")
-    print(f"  Classes : Concentration (0) = {np.sum(y==0)}, Stress (1) = {np.sum(y==1)}")
+            # Identifier les sujets à faible variance (< 0.5)
+            low_var = [int(s) for s, std in zip(unique_subj, stds) if std < 0.5]
+            if low_var:
+                print(f"  Sujets à faible variance de score (std<0.5) : {low_var}")
+        else:
+            ax.hist(y, bins=30, color="#2980B9" if target == "conc" else "#E74C3C",
+                    alpha=0.8)
+            ax.set_xlabel("Score")
 
-    # Tableau sujet -> classe
-    unique_sids = np.unique(sids)
-    subject_classes = {}
-    for sid in unique_sids:
-        mask = sids == sid
-        classes = np.unique(y[mask])
-        n_epochs = np.sum(mask)
-        subject_classes[int(sid)] = {
-            'classes': classes.tolist(),
-            'n_epochs': int(n_epochs),
-            'pure': len(classes) == 1,
-            'label': int(classes[0]) if len(classes) == 1 else -1,
-        }
-
-    # Compter les sujets purs par classe
-    n_pure_conc = sum(1 for v in subject_classes.values() if v['label'] == 0)
-    n_pure_stress = sum(1 for v in subject_classes.values() if v['label'] == 1)
-    n_mixed = sum(1 for v in subject_classes.values() if not v['pure'])
-
-    print(f"\n  RESULTAT :")
-    print(f"    Sujets 100% Concentration : {n_pure_conc}")
-    print(f"    Sujets 100% Stress        : {n_pure_stress}")
-    print(f"    Sujets mixtes             : {n_mixed}")
-
-    if n_mixed == 0:
-        print(f"\n  CONFOUND CONFIRME :")
-        print(f"    Chaque sujet appartient a UNE SEULE classe.")
-        print(f"    Label 'concentration' = dataset Cognitive Load (sujets 0-{n_pure_conc-1})")
-        print(f"    Label 'stress' = dataset SAM40 (sujets {n_pure_conc}-{n_pure_conc+n_pure_stress-1})")
-        print(f"    => Le modele peut atteindre 100% en apprenant les signatures hardware")
-        print(f"       SANS jamais comprendre la difference concentration/stress.")
-    else:
-        print(f"  Certains sujets sont mixtes -> pas de confound pur.")
-
-    # Figure
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-    fig.suptitle('DIAGNOSTIC : Correlation Sujet - Label\n'
-                 'Chaque sujet appartient a une seule classe = CONFOUND inter-dataset',
-                 fontsize=12, fontweight='bold')
-
-    # Barplot sujets par classe
-    ax = axes[0]
-    sids_conc = [sid for sid, v in subject_classes.items() if v['label'] == 0]
-    sids_stress = [sid for sid, v in subject_classes.items() if v['label'] == 1]
-    epochs_conc = [subject_classes[s]['n_epochs'] for s in sids_conc]
-    epochs_stress = [subject_classes[s]['n_epochs'] for s in sids_stress]
-
-    x_c = range(len(sids_conc))
-    x_s = range(len(sids_conc), len(sids_conc) + len(sids_stress))
-    ax.bar(x_c, epochs_conc, color='#2980B9', alpha=0.8, label=f'Concentration ({n_pure_conc} sujets)')
-    ax.bar(x_s, epochs_stress, color='#E74C3C', alpha=0.8, label=f'Stress ({n_pure_stress} sujets)')
-    ax.axvline(len(sids_conc) - 0.5, color='black', ls='--', lw=2, alpha=0.7)
-    ax.set_xlabel('Sujet (index)')
-    ax.set_ylabel("Nombre d'epochs")
-    ax.set_title('Epochs par sujet et par classe')
-    ax.legend()
-    ax.text(len(sids_conc)/2, max(epochs_conc + epochs_stress) * 0.9,
-            'Cognitive Load\n(OpenBCI 250Hz)', ha='center', fontsize=9, color='#2980B9')
-    ax.text(len(sids_conc) + len(sids_stress)/2, max(epochs_conc + epochs_stress) * 0.9,
-            'SAM40\n(Emotiv 128Hz)', ha='center', fontsize=9, color='#E74C3C')
-
-    # Matrice de confusion sujet-label
-    ax2 = axes[1]
-    confusion = np.zeros((2, 2), dtype=int)
-    for v in subject_classes.values():
-        if v['label'] == 0:
-            confusion[0, 0] += 1
-        elif v['label'] == 1:
-            confusion[1, 1] += 1
-    sns.heatmap(confusion, annot=True, fmt='d', cmap='Blues', ax=ax2,
-                xticklabels=['Concentration', 'Stress'],
-                yticklabels=['Concentration', 'Stress'])
-    ax2.set_xlabel('Label du sujet')
-    ax2.set_ylabel('Classe reelle')
-    ax2.set_title(f'Confusion : {n_mixed} sujets mixtes sur {len(unique_sids)}\n'
-                  f'=> Separation PARFAITE = confound')
+        ax.set_ylabel("Score moyen ± std")
+        ax.set_title(f"{target.upper()} – Score par sujet")
+        ax.axhline(5.0, color="gray", ls="--", lw=1.5, label="Seuil Low/High (5.0)")
+        ax.set_ylim(0, 10.5)
+        ax.legend()
+        ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(DIAG_DIR / '01_confound_subject_label.png', dpi=150, bbox_inches='tight')
+    plt.savefig(DIAG_DIR / "01_score_distribution.png", dpi=150, bbox_inches="tight")
     plt.close()
-    print(f"  Figure : {DIAG_DIR / '01_confound_subject_label.png'}")
-
-    return subject_classes
+    print(f"\n  Figure : {DIAG_DIR / '01_score_distribution.png'}")
 
 
-# ============================================================================
-# 2. PCA / t-SNE : VISUALISATION DES CLUSTERS
-# ============================================================================
+# ─── Test 2 : PCA / t-SNE ─────────────────────────────────────────────────
 def test2_pca_tsne():
     """
-    PCA et t-SNE sur les epochs bruts montrent 2 clusters nets
-    = les 2 datasets, pas les 2 etats cognitifs.
+    PCA et t-SNE sur les epochs bruts.
+    Les clusters doivent correspondre aux scores (gradient), pas aux sujets.
+    Si les clusters = sujets -> possible confound inter-sujet.
     """
-    print("\n" + "=" * 70)
-    print("TEST 2 : PCA / t-SNE des epochs (visualisation des clusters)")
-    print("=" * 70)
+    print("\n" + "=" * 65)
+    print("TEST 2 : PCA / t-SNE des epochs (séparabilité)")
+    print("=" * 65)
 
-    # Charger
-    for prefix, dir_path in [("train_A", AUGMENTED_DIR), ("merged", MERGED_DIR)]:
-        xp = dir_path / f"X_{prefix}.npy"
-        yp = dir_path / f"y_{prefix}.npy"
-        sp = dir_path / f"subject_ids_{prefix}.npy"
-        if all(p.exists() for p in [xp, yp, sp]):
-            X = np.load(xp)
-            y = np.load(yp)
-            sids = np.load(sp)
-            break
-    else:
-        print("  Fichiers non trouves.")
-        return
+    for target in TARGETS:
+        try:
+            X, y, sids = _load_target(target)
+        except FileNotFoundError:
+            print(f"  {target} : données introuvables")
+            continue
 
-    # Sous-echantillonner si trop gros
-    n_max = 2000
-    if len(X) > n_max:
-        idx = np.random.choice(len(X), n_max, replace=False)
-        X, y, sids = X[idx], y[idx], sids[idx]
+        n_max = 1500
+        if len(X) > n_max:
+            idx = np.random.choice(len(X), n_max, replace=False)
+            X_s = X[idx]; y_s = y[idx]
+            sids_s = sids[idx] if sids is not None else None
+        else:
+            X_s, y_s, sids_s = X, y, sids
 
-    X_flat = X.reshape(len(X), -1)
-    print(f"  {len(X)} epochs, shape aplati : {X_flat.shape}")
+        X_flat = X_s.reshape(len(X_s), -1)
+        pca = PCA(n_components=2)
+        X_pca = pca.fit_transform(X_flat)
+        var = pca.explained_variance_ratio_.sum()
+        print(f"\n  {target.upper()} : PCA variance expliquée = {var:.1%}")
 
-    # PCA
-    pca = PCA(n_components=2)
-    X_pca = pca.fit_transform(X_flat)
-    print(f"  PCA variance expliquee : {pca.explained_variance_ratio_.sum():.1%}")
+        fig, axes = plt.subplots(1, 2 if sids_s is not None else 1,
+                                 figsize=(12 if sids_s is not None else 6, 5))
+        if sids_s is None:
+            axes = [axes]
+        fig.suptitle(f"PCA – {target.upper()} (variance={var:.1%})",
+                     fontsize=12, fontweight="bold")
 
-    # Determiner la source du dataset
-    # Sujets 0-14 = Cognitive Load, 15+ = SAM40
-    dataset_source = np.array(['CogLoad' if s < 15 else 'SAM40' for s in sids])
+        # Coloré par score continu
+        sc = axes[0].scatter(X_pca[:, 0], X_pca[:, 1], c=y_s, s=10,
+                             cmap="RdYlGn_r", alpha=0.6, vmin=0, vmax=10)
+        plt.colorbar(sc, ax=axes[0], label="Score (0-10)")
+        axes[0].set_title("Coloré par score")
+        axes[0].set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]:.1%})")
+        axes[0].set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]:.1%})")
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-    fig.suptitle('PCA des epochs : les clusters correspondent aux DATASETS, pas aux etats cognitifs',
-                 fontsize=12, fontweight='bold')
-
-    # PCA colore par label
-    for label, color, name in [(0, '#2980B9', 'Concentration'), (1, '#E74C3C', 'Stress')]:
-        mask = y == label
-        axes[0].scatter(X_pca[mask, 0], X_pca[mask, 1], c=color, s=8, alpha=0.5, label=name)
-    axes[0].set_title('PCA colore par LABEL')
-    axes[0].legend()
-    axes[0].set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
-    axes[0].set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})')
-
-    # PCA colore par dataset source
-    for src, color, name in [('CogLoad', '#27AE60', 'Cognitive Load'), ('SAM40', '#E67E22', 'SAM40')]:
-        mask = dataset_source == src
-        axes[1].scatter(X_pca[mask, 0], X_pca[mask, 1], c=color, s=8, alpha=0.5, label=name)
-    axes[1].set_title('PCA colore par DATASET SOURCE')
-    axes[1].legend()
-    axes[1].set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
-
-    # PCA colore par sujet (gradient)
-    sc = axes[2].scatter(X_pca[:, 0], X_pca[:, 1], c=sids, s=8, alpha=0.5, cmap='viridis')
-    plt.colorbar(sc, ax=axes[2], label='Subject ID')
-    axes[2].set_title('PCA colore par SUJET')
-    axes[2].set_xlabel(f'PC1')
-
-    plt.tight_layout()
-    plt.savefig(DIAG_DIR / '02_pca_clusters.png', dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f"  Figure : {DIAG_DIR / '02_pca_clusters.png'}")
-
-    # t-SNE (plus lent mais plus parlant)
-    print("  Calcul t-SNE (peut prendre 30s)...")
-    try:
-        tsne = TSNE(n_components=2, perplexity=30, random_state=42, n_iter=500)
-        X_tsne = tsne.fit_transform(X_flat)
-
-        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-        fig.suptitle('t-SNE des epochs : meme separation = meme confound', fontsize=12, fontweight='bold')
-
-        for label, color, name in [(0, '#2980B9', 'Concentration'), (1, '#E74C3C', 'Stress')]:
-            mask = y == label
-            axes[0].scatter(X_tsne[mask, 0], X_tsne[mask, 1], c=color, s=8, alpha=0.5, label=name)
-        axes[0].set_title('t-SNE colore par LABEL')
-        axes[0].legend()
-
-        for src, color, name in [('CogLoad', '#27AE60', 'Cognitive Load'), ('SAM40', '#E67E22', 'SAM40')]:
-            mask = dataset_source == src
-            axes[1].scatter(X_tsne[mask, 0], X_tsne[mask, 1], c=color, s=8, alpha=0.5, label=name)
-        axes[1].set_title('t-SNE colore par DATASET SOURCE')
-        axes[1].legend()
+        # Coloré par sujet
+        if sids_s is not None:
+            sc2 = axes[1].scatter(X_pca[:, 0], X_pca[:, 1], c=sids_s,
+                                  s=10, cmap="tab20", alpha=0.6)
+            plt.colorbar(sc2, ax=axes[1], label="Sujet ID")
+            axes[1].set_title("Coloré par sujet")
+            axes[1].set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]:.1%})")
 
         plt.tight_layout()
-        plt.savefig(DIAG_DIR / '03_tsne_clusters.png', dpi=150, bbox_inches='tight')
+        plt.savefig(DIAG_DIR / f"02_pca_{target}.png", dpi=150, bbox_inches="tight")
         plt.close()
-        print(f"  Figure : {DIAG_DIR / '03_tsne_clusters.png'}")
-    except Exception as e:
-        print(f"  t-SNE echoue : {e}")
+        print(f"  Figure : {DIAG_DIR / f'02_pca_{target}.png'}")
+
+        # t-SNE (sous-échantillonné à 800)
+        n_tsne = min(800, len(X_s))
+        idx_tsne = np.random.choice(len(X_s), n_tsne, replace=False)
+        print(f"  t-SNE sur {n_tsne} epochs...")
+        try:
+            tsne = TSNE(n_components=2, perplexity=30, random_state=42, n_iter=500)
+            X_tsne = tsne.fit_transform(X_flat[idx_tsne])
+
+            fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+            fig.suptitle(f"t-SNE – {target.upper()}", fontsize=12, fontweight="bold")
+
+            sc = axes[0].scatter(X_tsne[:, 0], X_tsne[:, 1],
+                                 c=y_s[idx_tsne], s=10, cmap="RdYlGn_r",
+                                 alpha=0.6, vmin=0, vmax=10)
+            plt.colorbar(sc, ax=axes[0], label="Score")
+            axes[0].set_title("Coloré par score")
+
+            if sids_s is not None:
+                sc2 = axes[1].scatter(X_tsne[:, 0], X_tsne[:, 1],
+                                      c=sids_s[idx_tsne], s=10,
+                                      cmap="tab20", alpha=0.6)
+                plt.colorbar(sc2, ax=axes[1], label="Sujet ID")
+                axes[1].set_title("Coloré par sujet")
+
+            plt.tight_layout()
+            plt.savefig(DIAG_DIR / f"03_tsne_{target}.png", dpi=150, bbox_inches="tight")
+            plt.close()
+            print(f"  Figure : {DIAG_DIR / f'03_tsne_{target}.png'}")
+        except Exception as e:
+            print(f"  t-SNE échoué : {e}")
 
 
-# ============================================================================
-# 3. PREUVE ULTIME : CLASSIFIER LA SOURCE DU DATASET
-# ============================================================================
-def test3_classify_source():
+# ─── Test 3 : Analyse spectrale ────────────────────────────────────────────
+def test3_spectral_analysis():
     """
-    Entraine un simple LogisticRegression pour predire la SOURCE du dataset
-    (pas le label) a partir des epochs. Si accuracy ~100% => confound confirme.
+    PSD moyenne par target et par quartile de score.
+    Vérifie que le signal EEG varie réellement avec le score.
     """
-    print("\n" + "=" * 70)
-    print("TEST 3 : Classifier la source du dataset (preuve ultime)")
-    print("=" * 70)
+    print("\n" + "=" * 65)
+    print("TEST 3 : Analyse spectrale (variation signal/score)")
+    print("=" * 65)
 
-    for prefix, dir_path in [("train_A", AUGMENTED_DIR), ("merged", MERGED_DIR)]:
-        xp = dir_path / f"X_{prefix}.npy"
-        yp = dir_path / f"y_{prefix}.npy"
-        sp = dir_path / f"subject_ids_{prefix}.npy"
-        if all(p.exists() for p in [xp, yp, sp]):
-            X = np.load(xp)
-            y = np.load(yp)
-            sids = np.load(sp)
-            break
-    else:
-        print("  Fichiers non trouves.")
-        return
+    fig, axes = plt.subplots(2, 2, figsize=(16, 10))
+    fig.suptitle("Analyse spectrale par target et quartile de score",
+                 fontsize=13, fontweight="bold")
 
-    # Creer le label "source" : 0 = Cognitive Load, 1 = SAM40
-    y_source = (sids >= 15).astype(int)
-
-    # Sous-echantillonner
-    n_max = 2000
-    if len(X) > n_max:
-        idx = np.random.choice(len(X), n_max, replace=False)
-        X, y, sids, y_source = X[idx], y[idx], sids[idx], y_source[idx]
-
-    X_flat = X.reshape(len(X), -1)
-
-    # PCA pour reduire les dimensions
-    pca = PCA(n_components=20)
-    X_pca = pca.fit_transform(X_flat)
-
-    # Test 1 : Classifier LABEL (concentration vs stress)
-    clf_label = LogisticRegression(max_iter=1000, random_state=42)
-    scores_label = cross_val_score(clf_label, X_pca, y, cv=5, scoring='accuracy')
-
-    # Test 2 : Classifier SOURCE (Cognitive Load vs SAM40)
-    clf_source = LogisticRegression(max_iter=1000, random_state=42)
-    scores_source = cross_val_score(clf_source, X_pca, y_source, cv=5, scoring='accuracy')
-
-    # Test 3 : Correlation entre label et source
-    correlation = np.mean(y == y_source)
-
-    print(f"\n  Logistic Regression (PCA 20 composantes, 5-fold CV) :")
-    print(f"    Classifier LABEL (conc vs stress)  : {scores_label.mean():.1%} +/- {scores_label.std():.1%}")
-    print(f"    Classifier SOURCE (CogLoad vs SAM) : {scores_source.mean():.1%} +/- {scores_source.std():.1%}")
-    print(f"    Correlation label <-> source        : {correlation:.1%}")
-
-    if correlation > 0.95:
-        print(f"\n  CONCLUSION : Label et source sont correles a {correlation:.1%}")
-        print(f"    => Le modele peut atteindre {scores_source.mean():.1%} en apprenant la source")
-        print(f"       sans JAMAIS apprendre la difference concentration/stress.")
-        print(f"    => Les metriques 99-100% ne refletent PAS la performance reelle.")
-
-
-# ============================================================================
-# 4. ANALYSE SPECTRALE : SIGNATURE HARDWARE
-# ============================================================================
-def test4_spectral_analysis():
-    """
-    Compare la PSD moyenne des epochs Concentration vs Stress.
-    Si les PSDs sont tres differentes, c'est la signature du hardware.
-    """
-    print("\n" + "=" * 70)
-    print("TEST 4 : Analyse spectrale (signature hardware)")
-    print("=" * 70)
-
-    for prefix, dir_path in [("train_A", AUGMENTED_DIR), ("merged", MERGED_DIR)]:
-        xp = dir_path / f"X_{prefix}.npy"
-        yp = dir_path / f"y_{prefix}.npy"
-        sp = dir_path / f"subject_ids_{prefix}.npy"
-        if all(p.exists() for p in [xp, yp, sp]):
-            X = np.load(xp)
-            y = np.load(yp)
-            sids = np.load(sp)
-            break
-    else:
-        print("  Fichiers non trouves.")
-        return
-
-    # PSD moyenne par classe
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-    fig.suptitle('Analyse spectrale : les differences de PSD = signatures HARDWARE, pas etats cognitifs',
-                 fontsize=11, fontweight='bold')
-
-    # Sous-echantillonner
-    n_per_class = min(500, np.sum(y == 0), np.sum(y == 1))
-    idx_conc = np.random.choice(np.where(y == 0)[0], n_per_class, replace=False)
-    idx_stress = np.random.choice(np.where(y == 1)[0], n_per_class, replace=False)
-
-    # Calculer PSD moyenne
-    psds_conc, psds_stress = [], []
-    for i in idx_conc:
-        f, p = scipy_signal.welch(X[i].flatten(), FS, nperseg=256)
-        psds_conc.append(p)
-    for i in idx_stress:
-        f, p = scipy_signal.welch(X[i].flatten(), FS, nperseg=256)
-        psds_stress.append(p)
-
-    psd_conc_mean = np.mean(psds_conc, axis=0)
-    psd_stress_mean = np.mean(psds_stress, axis=0)
-    mask = f <= 45
-
-    # PSD par classe
-    ax = axes[0]
-    ax.semilogy(f[mask], psd_conc_mean[mask], color='#2980B9', lw=2, label='Concentration (CogLoad)')
-    ax.semilogy(f[mask], psd_stress_mean[mask], color='#E74C3C', lw=2, label='Stress (SAM40)')
-    ax.set_xlabel('Frequence (Hz)')
-    ax.set_ylabel('PSD (log)')
-    ax.set_title('PSD moyenne par classe')
-    ax.legend()
-    ax.grid(alpha=0.3)
-
-    # Ratio PSD
-    ax2 = axes[1]
-    ratio = psd_conc_mean[mask] / (psd_stress_mean[mask] + 1e-15)
-    ax2.plot(f[mask], ratio, color='#8E44AD', lw=2)
-    ax2.axhline(1, color='gray', ls='--', lw=1)
-    ax2.set_xlabel('Frequence (Hz)')
-    ax2.set_ylabel('Ratio PSD (Conc / Stress)')
-    ax2.set_title('Ratio spectral\n(Si different de 1 = signature hardware)')
-    ax2.grid(alpha=0.3)
-
-    # PSD par sujet (quelques exemples)
-    ax3 = axes[2]
-    unique_sids = np.unique(sids)
-    n_show = min(6, len(unique_sids))
-    cmap_conc = plt.cm.Blues(np.linspace(0.4, 0.9, n_show // 2))
-    cmap_stress = plt.cm.Reds(np.linspace(0.4, 0.9, n_show // 2))
-
-    count_c, count_s = 0, 0
-    for sid in unique_sids[:n_show * 2]:
-        sid_mask = sids == sid
-        if np.sum(sid_mask) < 5:
+    for row, target in enumerate(TARGETS):
+        try:
+            X, y, sids = _load_target(target)
+        except FileNotFoundError:
+            print(f"  {target} : données introuvables")
             continue
-        epoch = X[sid_mask][0].flatten()
-        f_s, p_s = scipy_signal.welch(epoch, FS, nperseg=256)
-        label = y[sid_mask][0]
-        if label == 0 and count_c < n_show // 2:
-            ax3.semilogy(f_s[f_s <= 45], p_s[f_s <= 45], color=cmap_conc[count_c],
-                         lw=1, alpha=0.7, label=f'S{int(sid)} (conc)')
-            count_c += 1
-        elif label == 1 and count_s < n_show // 2:
-            ax3.semilogy(f_s[f_s <= 45], p_s[f_s <= 45], color=cmap_stress[count_s],
-                         lw=1, alpha=0.7, label=f'S{int(sid)} (stress)')
-            count_s += 1
-    ax3.set_xlabel('Frequence (Hz)')
-    ax3.set_ylabel('PSD (log)')
-    ax3.set_title('PSD par sujet individuel')
-    ax3.legend(fontsize=7, ncol=2)
-    ax3.grid(alpha=0.3)
+
+        # PSD par quartile de score
+        quartiles = np.percentile(y, [0, 25, 50, 75, 100])
+        colors = ["#2980B9", "#27AE60", "#F39C12", "#E74C3C"]
+        labels_q = [f"Q1 [{quartiles[0]:.1f}-{quartiles[1]:.1f}]",
+                    f"Q2 [{quartiles[1]:.1f}-{quartiles[2]:.1f}]",
+                    f"Q3 [{quartiles[2]:.1f}-{quartiles[3]:.1f}]",
+                    f"Q4 [{quartiles[3]:.1f}-{quartiles[4]:.1f}]"]
+
+        ax = axes[row, 0]
+        for q_idx in range(4):
+            mask = (y >= quartiles[q_idx]) & (y < quartiles[q_idx + 1])
+            if q_idx == 3:
+                mask = (y >= quartiles[q_idx]) & (y <= quartiles[q_idx + 1])
+            n_q = np.sum(mask)
+            if n_q == 0:
+                continue
+            idx_q = np.where(mask)[0][:min(200, n_q)]
+            psds = []
+            for i in idx_q:
+                f_arr, p = scipy_signal.welch(X[i].flatten(), FS, nperseg=256)
+                psds.append(p)
+            psd_mean = np.mean(psds, axis=0)
+            fmask = f_arr <= 45
+            ax.semilogy(f_arr[fmask], psd_mean[fmask], color=colors[q_idx],
+                        lw=2, alpha=0.85, label=labels_q[q_idx])
+
+        ax.set_xlabel("Fréquence (Hz)")
+        ax.set_ylabel("PSD (log)")
+        ax.set_title(f"{target.upper()} – PSD par quartile de score")
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.3)
+
+        # Histogramme des scores
+        ax2 = axes[row, 1]
+        ax2.hist(y, bins=25, color="#2980B9" if target == "conc" else "#E74C3C",
+                 alpha=0.8, edgecolor="white")
+        ax2.axvline(5.0, color="gray", ls="--", lw=1.5, label="Seuil Low/High")
+        pct_high = np.mean(y >= 5.0) * 100
+        ax2.set_xlabel("Score (0-10)")
+        ax2.set_ylabel("Fréquence")
+        ax2.set_title(f"{target.upper()} – Distribution des scores\n"
+                      f"High (≥5) = {pct_high:.1f}%")
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+
+        print(f"  {target.upper()} : {len(X)} epochs | "
+              f"Q1={quartiles[1]:.2f} Q2={quartiles[2]:.2f} "
+              f"Q3={quartiles[3]:.2f} | High={pct_high:.1f}%")
 
     plt.tight_layout()
-    plt.savefig(DIAG_DIR / '04_spectral_analysis.png', dpi=150, bbox_inches='tight')
+    plt.savefig(DIAG_DIR / "04_spectral_analysis.png", dpi=150, bbox_inches="tight")
     plt.close()
     print(f"  Figure : {DIAG_DIR / '04_spectral_analysis.png'}")
 
 
-# ============================================================================
-# 5. RAPPORT D'OVERFITTING (lecture des metrics.json existants)
-# ============================================================================
-def test5_overfitting_report():
-    """Lit les metrics.json et compile le rapport d'overfitting."""
-    print("\n" + "=" * 70)
-    print("TEST 5 : Rapport d'overfitting (modeles entraines)")
-    print("=" * 70)
+# ─── Test 4 : Bilan métriques DL ──────────────────────────────────────────
+def test4_metrics_report():
+    """
+    Lit les metrics.json des modèles DL entraînés et génère un bilan.
+    Métriques : MAE, RMSE, R², AUC-ROC, F1-macro, Deploy Score.
+    """
+    print("\n" + "=" * 65)
+    print("TEST 4 : Bilan des métriques DL de régression")
+    print("=" * 65)
 
     rows = []
     for model in ALL_MODELS:
-        for exp in EXPERIMENTS:
-            f = OUTPUT_BASE / model / f"exp_{exp}" / "metrics.json"
-            if f.exists():
+        for target in TARGETS:
+            for exp in EXPERIMENTS:
+                f = DL_OUTPUT_BASE / model / target / exp / "metrics.json"
+                if not f.exists():
+                    continue
                 with open(f) as fp:
                     data = json.load(fp)
-                of = data.get("overfitting", {})
-                leak = data.get("data_leak", {})
-                row = {
-                    "modele": model,
-                    "experience": exp,
-                    "accuracy": data.get("accuracy", 0),
-                    "f1_macro": data.get("f1_macro", 0),
-                    "auc": data.get("auc", 0),
-                    "train_accuracy": data.get("train_accuracy", 0),
-                    "gap": data.get("train_test_gap", data.get("train_accuracy", 0) - data.get("accuracy", 0)),
-                    "overfitting": of.get("is_overfitting", "?"),
-                    "severite": of.get("severity", "?"),
-                    "gap_gen": of.get("generalization_gap", 0),
-                    "perfect_score": of.get("perfect_score", False),
-                    "leakage": leak.get("has_leakage", "?"),
-                    "temps_s": data.get("train_time_sec", 0),
-                }
-                rows.append(row)
+                rows.append({
+                    "model": model, "target": target, "exp": exp, "source": "standard",
+                    "mae":          data.get("mae",           np.nan),
+                    "rmse":         data.get("rmse",          np.nan),
+                    "r2":           data.get("r2",            np.nan),
+                    "auc_roc":      data.get("auc_roc",       np.nan),
+                    "f1_macro":     data.get("f1_macro",      np.nan),
+                    "train_time_s": data.get("train_time_sec", np.nan),
+                })
 
-        # LOSO
-        lf = OUTPUT_BASE / model / "LOSO_exp_A" / "metrics.json"
-        if lf.exists():
-            with open(lf) as fp:
-                data = json.load(fp)
-            rows.append({
-                "modele": model, "experience": "LOSO_A",
-                "accuracy": data.get("accuracy", 0),
-                "f1_macro": data.get("f1_macro", 0),
-                "auc": data.get("auc", 0),
-                "train_accuracy": 0, "gap": data.get("train_test_gap", 0),
-                "overfitting": "", "severite": "",
-                "gap_gen": 0, "perfect_score": False,
-                "leakage": "", "temps_s": data.get("train_time_sec", 0),
-            })
+            # LOSO
+            lf = DL_OUTPUT_BASE / model / target / "LOSO" / "metrics.json"
+            if lf.exists():
+                with open(lf) as fp:
+                    data = json.load(fp)
+                rows.append({
+                    "model": model, "target": target, "exp": "LOSO", "source": "LOSO",
+                    "mae":          data.get("mae",           np.nan),
+                    "rmse":         data.get("rmse",          np.nan),
+                    "r2":           data.get("r2",            np.nan),
+                    "auc_roc":      data.get("auc_roc",       np.nan),
+                    "f1_macro":     data.get("f1_macro",      np.nan),
+                    "train_time_s": data.get("train_time_sec", np.nan),
+                })
 
     if not rows:
-        print("  Aucun fichier metrics.json trouve.")
+        print("  Aucun metrics.json trouvé. Lancez les entraînements d'abord.")
         return
 
-    # Affichage
-    print(f"\n  {len(rows)} resultats trouves.\n")
-    print(f"  {'Modele':<15} {'Exp':<8} {'Acc':>7} {'F1m':>7} {'Gap':>7} {'Overfit':>10} {'Parfait':>8} {'Temps':>8}")
-    print(f"  {'-'*80}")
+    print(f"\n  {len(rows)} résultats trouvés.\n")
+    print(f"  {'Modèle':<15} {'Cible':<7} {'Exp':<5} {'MAE':>6} {'R²':>7} {'AUC':>6}")
+    print(f"  {'-'*54}")
 
-    for r in sorted(rows, key=lambda x: (x['modele'], x['experience'])):
-        pf = "OUI" if r.get('perfect_score') else ""
-        of_str = str(r.get('severite', ''))[:8]
-        print(f"  {r['modele']:<15} {r['experience']:<8} {r['accuracy']:>7.4f} "
-              f"{r['f1_macro']:>7.4f} {r['gap']:>7.4f} {of_str:>10} {pf:>8} {r['temps_s']:>7.0f}s")
+    for r in sorted(rows, key=lambda x: (x["target"], x["model"], x["exp"])):
+        mae = f"{r['mae']:.3f}" if not np.isnan(r.get('mae', np.nan)) else "  -  "
+        r2  = f"{r['r2']:.3f}"  if not np.isnan(r.get('r2',  np.nan)) else "  -  "
+        auc = f"{r['auc_roc']:.3f}" if not np.isnan(r.get('auc_roc', np.nan)) else "  -  "
+        print(f"  {r['model']:<15} {r['target']:<7} {r['exp']:<5} "
+              f"{mae:>6} {r2:>7} {auc:>6}")
 
     # CSV
-    csv_path = DIAG_DIR / "overfitting_report.csv"
-    with open(csv_path, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-        writer.writeheader()
-        writer.writerows(rows)
-    print(f"\n  CSV : {csv_path}")
+    csv_path = DIAG_DIR / "metrics_report.csv"
+    if rows:
+        with open(csv_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(rows)
+        print(f"\n  CSV : {csv_path}")
 
-    # Compter les scores parfaits
-    n_perfect = sum(1 for r in rows if r['accuracy'] >= 0.999 and r['experience'] != 'LOSO_A')
-    n_total = sum(1 for r in rows if r['experience'] != 'LOSO_A')
-    print(f"\n  RESUME :")
-    print(f"    Scores parfaits (>=99.9%) : {n_perfect}/{n_total}")
-    print(f"    => Confirme le confound inter-dataset (pas overfitting classique)")
+    # Résumé par target (meilleur modèle Exp A)
+    for target in TARGETS:
+        sub = [r for r in rows if r["target"] == target and r["exp"] == "A"
+               and not np.isnan(r.get("r2", np.nan))]
+        if sub:
+            best = max(sub, key=lambda x: x["r2"])
+            print(f"\n  Meilleur {target.upper()} (Exp A, R²) : "
+                  f"{best['model']} — MAE={best['mae']:.3f} "
+                  f"R²={best['r2']:.3f} AUC={best['auc_roc']:.3f}")
 
     return rows
 
 
-# ============================================================================
-# 6. FIGURE SYNTHESE
-# ============================================================================
-def generate_synthesis_figure():
-    """Figure de synthese pour le rapport PFE."""
-    fig = plt.figure(figsize=(16, 10), facecolor='white')
-    fig.suptitle('NeuroCap — Diagnostic : Confound Inter-Dataset\n'
-                 'Le label (concentration vs stress) est correle a la source (CogLoad vs SAM40)',
-                 fontsize=13, fontweight='bold')
-
-    # Texte explicatif
-    ax = fig.add_subplot(111)
-    ax.axis('off')
-
-    text = """
-DIAGNOSTIC COMPLET — Pourquoi les metriques sont a 99-100%
-============================================================
-
-1. CE N'EST PAS DE L'OVERFITTING CLASSIQUE
-   - Le gap train/test est faible (0-3%)
-   - Meme la LOSO (Leave-One-Subject-Out) donne 97-100%
-   - Le check data_leakage dit "sujets disjoints OK"
-
-2. C'EST UN CONFOUND INTER-DATASET
-   - Sujets 0-14 (Cognitive Load, OpenBCI 250Hz) = TOUS Concentration
-   - Sujets 15+ (SAM40, Emotiv 128Hz resample) = TOUS Stress
-   - Le modele apprend a distinguer les 2 appareils EEG, pas les etats
-
-3. PREUVES
-   - Correlation label <-> source = 100%
-   - PCA montre 2 clusters = 2 datasets (pas 2 etats)
-   - Logistic Regression sur la SOURCE donne le meme score que sur le LABEL
-   - Les PSD moyennes sont differentes = signatures hardware
-
-4. SOLUTIONS POUR LE PROJET
-   a) Court terme (pour le PFE) :
-      - Presenter les resultats actuels en tant que "upper bound"
-      - Ajouter une section "Limites et biais" expliquant le confound
-      - Montrer que la LOSO confirme la bonne separation par sujet
-      - Argumenter que l'architecture est correcte (le probleme est data, pas modele)
-
-   b) Moyen terme :
-      - Enregistrer des donnees REELLES avec le hardware AD8232/ESP32
-        (meme sujet fait concentration ET stress)
-      - Utiliser un seul dataset multi-tache (ex: SAM40 seul avec 3 taches)
-
-   c) Normalisation avancee :
-      - Appliquer Domain Adaptation (TCA, CORAL) entre les 2 datasets
-      - Aligner les distributions spectrales avant le merge
-
-5. METRIQUES REALISTES ATTENDUES
-   - Avec des donnees single-source monocanal Fp2 : 70-85% accuracy
-   - Litterature : SVM 71% (Saeed 2015), RF 86% (Samsa 2026)
-   - Vos modeles DL sur donnees propres devraient donner 75-88%
-"""
-
-    ax.text(0.05, 0.95, text, transform=ax.transAxes, fontsize=10,
-            va='top', fontfamily='monospace',
-            bbox=dict(boxstyle='round,pad=0.5', facecolor='#F8F9FA',
-                      edgecolor='#2C3E50', alpha=0.95))
-
-    plt.tight_layout()
-    plt.savefig(DIAG_DIR / '05_synthese_diagnostic.png', dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f"\n  Synthese : {DIAG_DIR / '05_synthese_diagnostic.png'}")
-
-
-# ============================================================================
-# MAIN
-# ============================================================================
+# ─── Main ──────────────────────────────────────────────────────────────────
 def main():
-    print("=" * 70)
-    print("NeuroCap — DIAGNOSTIC COMPLET : Confound + Overfitting")
-    print("=" * 70)
-    print(f"Sortie : {DIAG_DIR}\n")
+    print("=" * 65)
+    print("NeuroCap — Diagnostic qualité données régression EEG")
+    print(f"Sortie : {DIAG_DIR}")
+    print("=" * 65)
 
-    test1_subject_label_correlation()
+    test1_score_distribution()
     test2_pca_tsne()
-    test3_classify_source()
-    test4_spectral_analysis()
-    test5_overfitting_report()
-    generate_synthesis_figure()
+    test3_spectral_analysis()
+    test4_metrics_report()
 
-    print("\n" + "=" * 70)
-    print("DIAGNOSTIC TERMINE")
-    print(f"Toutes les figures dans : {DIAG_DIR}")
-    print("=" * 70)
+    print("\n" + "=" * 65)
+    print("DIAGNOSTIC TERMINÉ")
+    print(f"Figures dans : {DIAG_DIR}")
+    print("=" * 65)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

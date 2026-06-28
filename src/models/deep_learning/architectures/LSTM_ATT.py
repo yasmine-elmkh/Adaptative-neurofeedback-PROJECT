@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import torch.nn as nn
-from DL_utils import N_CLASSES, CNNPreEncoder, BahdanauAttention, dl_main
+from DL_utils_regression import N_CLASSES, CNNPreEncoder, BahdanauAttention, dl_main_regression
 
 class LSTM_Att(nn.Module):
     """LSTM 2 couches + Attention Bahdanau avec CNNPreEncoder."""
@@ -16,7 +16,7 @@ class LSTM_Att(nn.Module):
         self.pre_encoder = CNNPreEncoder(out_features=64)
         self.rnn = nn.LSTM(64, 64, num_layers=2, batch_first=True, dropout=0.3)
         self.attention = BahdanauAttention(64)
-        self.fc = nn.Sequential(nn.Linear(64, 32), nn.ReLU(), nn.Dropout(0.5), nn.Linear(32, n_classes))
+        self.fc = nn.Sequential(nn.Linear(64, 32), nn.ReLU(), nn.Dropout(0.25), nn.Linear(32, n_classes))
     def forward(self, x):
         x = self.pre_encoder(x)          # (B, 1, 1000) → (B, ~63, 64)
         out, _ = self.rnn(x)             # (B, ~63, hidden)
@@ -24,4 +24,4 @@ class LSTM_Att(nn.Module):
         return self.fc(context)
 
 if __name__ == "__main__":
-    dl_main("LSTM_Att", LSTM_Att)
+    dl_main_regression("LSTM_Att", LSTM_Att)
