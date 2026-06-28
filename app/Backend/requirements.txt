@@ -24,6 +24,9 @@ httpx==0.28.1
 # ── HTTP client ───────────────────────────────────────────────────────────────
 requests>=2.31.0              # RAG service (Ollama HTTP calls)
 
+# ── LLM cloud (génération RAG) ────────────────────────────────────────────────
+openai>=1.30.0                # DeepSeek API (compatible OpenAI SDK) — gratuit
+
 # ── Signal processing & inference ─────────────────────────────────────────────
 numpy>=1.24.0
 scipy>=1.10.0

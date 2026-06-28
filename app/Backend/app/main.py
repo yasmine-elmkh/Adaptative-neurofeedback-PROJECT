@@ -9,10 +9,15 @@ v2.2 : suppression de la session live adaptative (remplacée par EEG live + anal
 """
 
 import asyncio
+import sys
 import json
 import logging
 from contextlib import asynccontextmanager
 from typing import Optional
+
+# Fix DNS asyncio sur Windows (ProactorEventLoop a des bugs DNS avec anyio/httpx)
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Depends, Request
 from fastapi.exceptions import RequestValidationError

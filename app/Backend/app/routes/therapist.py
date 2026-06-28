@@ -76,16 +76,53 @@ async def _enrich_patient(patient: dict, db: AsyncClient) -> dict:
     """Ajoute les métriques de sessions + profil EEG à un dict patient."""
     patient_id = patient["id"]
 
-    # Toutes les sessions complétées (pour stats globales + évolution)
-    all_sess_resp = await (
-        db.table("sessions")
-        .select("id,score,created_at,status,objective")
-        .eq("user_id", patient_id)
+    # Lire depuis feedback_sessions (nouveau système neurofeedback)
+    fb_resp = await (
+        db.table("feedback_sessions")
+        .select("id,score,started_at,completed_at,status,objective")
+        .eq("patient_id", patient_id)
         .eq("status", "completed")
-        .order("created_at", desc=True)
+        .order("completed_at", desc=True)
         .execute()
     )
-    all_sessions = all_sess_resp.data or []
+    all_sessions = fb_resp.data or []
+
+    # Normaliser le champ date (feedback_sessions utilise completed_at, sessions utilise created_at)
+    for s in all_sessions:
+        s.setdefault("created_at", s.get("completed_at") or s.get("started_at"))
+
+    # Fallback 1 : ancienne table sessions si feedback_sessions vide
+    if not all_sessions:
+        old_resp = await (
+            db.table("sessions")
+            .select("id,score,created_at,status,objective")
+            .eq("user_id", patient_id)
+            .eq("status", "completed")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        all_sessions = old_resp.data or []
+
+    # Fallback 2 : eeg_reports (analyses fichiers EEG) si toujours vide
+    if not all_sessions:
+        rpt_resp = await (
+            db.table("eeg_reports")
+            .select("id,concentration_pct,stress_pct,created_at")
+            .eq("patient_id", patient_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        for r in (rpt_resp.data or []):
+            c = r.get("concentration_pct")
+            s = r.get("stress_pct")
+            if c is not None or s is not None:
+                vals = [v for v in [c, s] if v is not None]
+                all_sessions.append({
+                    "score": round(sum(vals) / len(vals), 1),
+                    "created_at": r["created_at"],
+                    "status": "completed",
+                    "objective": "Analyse fichier EEG",
+                })
 
     last_session_date = None
     last_session_objective = None

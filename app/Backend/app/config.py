@@ -91,7 +91,14 @@ class Settings:
     # ── Redis (cache optionnel) ────────────────────────────────────────────────
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379")
 
-    # ── LLM local Ollama ──────────────────────────────────────────────────────
+    # ── LLM ───────────────────────────────────────────────────────────────────
+    # Priorité : DeepSeek API (gratuit) → Ollama local (fallback)
+    # Clé DeepSeek sur https://platform.deepseek.com/
+    DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "")
+    # Groq (gratuit, fallback si DeepSeek vide/épuisé) — clé sur https://console.groq.com
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    # Ollama local (fallback final)
     LLM_MODEL: str = os.getenv("LLM_MODEL", "mistral")
     OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://localhost:11434")
 

@@ -24,15 +24,15 @@ from .epochs       import EpochExtractor
 from .artifacts    import ContactQualityEstimator
 from ..utils.constants import FS
 
-# Classifieur ML (LightGBM entraîné LOSO) — chargement optionnel
-_ml_clf = None
+# DualClassifier : EEGNet DL FULL (conc) + EEGNet TL-LR FULL (stress) — optionnel
+_dual_clf = None
 try:
-    from .ml_classifier import MLClassifier
-    _ml_clf = MLClassifier()
+    from .dual_classifier import DualClassifier
+    _dual_clf = DualClassifier()
 except Exception as _e:
     import logging as _logging
     _logging.getLogger("NeuroCap").warning(
-        f"[Processor] MLClassifier non chargé ({_e}). "
+        f"[Processor] DualClassifier non chargé ({_e}). "
         "Classification ML désactivée — Z-score uniquement."
     )
 
@@ -274,12 +274,13 @@ class RealTimeProcessor:
                 feat.get("emg_ratio", 0.0)
             )
 
-            # 6b. Classification ML — LightGBM FeatEng (LOSO)
-            # ml_features est calculé par epochs.py sur l'époque z-scorée.
-            if _ml_clf is not None:
-                ml_feats = epoch_result.get("ml_features")
-                if ml_feats:
-                    epoch_result["ml_prediction"] = _ml_clf.predict_from_dict(ml_feats)
+            # 6b. Classification dual (EEGNet+LR conc + RF+feat78 stress)
+            # epoch_filtered et ml_features calculés par epochs.py.
+            if _dual_clf is not None:
+                ep_f     = epoch_result.get("epoch_filtered", [])
+                ml_feats = epoch_result.get("ml_features",    {})
+                if ep_f or ml_feats:
+                    epoch_result["ml_prediction"] = _dual_clf.predict(ep_f, ml_feats)
 
         return flt, epoch_result
 

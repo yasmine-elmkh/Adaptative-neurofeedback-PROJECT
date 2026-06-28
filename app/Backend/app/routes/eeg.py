@@ -84,7 +84,12 @@ async def _store_training_epochs(patient_id: str, report_id: Optional[str],
                                  epochs: list, db: AsyncClient):
     """
     Insère les époques haute confiance dans training_epochs (batch par 100).
-    Silencieux si la table n'existe pas encore.
+
+    Stocke pour chaque époque :
+      - features       : 78 features FeatEng
+      - epoch_filtered : 1000 floats signal filtré (pour EEGNet fine-tuning)
+      - conc_score     : pct 0-100 DualClassifier (label régression EEGNet/conc)
+      - stress_score   : pct 0-100 DualClassifier (label régression EEGNet_LR/stress)
     """
     rows = []
     for ep in epochs:
@@ -92,13 +97,26 @@ async def _store_training_epochs(patient_id: str, report_id: Optional[str],
         conf = pred.get("confidence", 0.0)
         if not ep.get("ml_features") or conf < HIGH_CONF_THR:
             continue
-        label = 1 if pred.get("state") == "stress" else 0
+
+        conc_pred    = pred.get("concentration") or {}
+        stress_pred  = pred.get("stress") or {}
+        # Sauvegarder en 0-100 (pct) — échelle cohérente avec l'affichage et le fine-tuning
+        conc_score   = conc_pred.get("pct")   if isinstance(conc_pred,   dict) else None
+        stress_score = stress_pred.get("pct") if isinstance(stress_pred, dict) else None
+        label        = 1 if pred.get("state") == "stress" else 0
+
+        # epoch_filtered : 1000 floats — signal filtré z-scoré, nécessaire pour EEGNet
+        ep_filt = ep.get("epoch_filtered") or []
+
         rows.append({
             "id":                   str(uuid.uuid4()),
             "patient_id":           patient_id,
             "report_id":            report_id,
             "epoch_index":          ep.get("epoch_idx", 0),
-            "features":             ep["ml_features"],
+            "features":             ep["ml_features"],          # 78 features RF stress
+            "epoch_filtered":       ep_filt[:1000] if ep_filt else None,  # EEGNet conc
+            "conc_score":           conc_score,                 # score 0-10 concentration
+            "stress_score":         stress_score,               # score 0-10 stress
             "predicted_label":      label,
             "predicted_confidence": round(conf, 4),
             "is_reliable":          conf >= 0.60,
@@ -116,6 +134,30 @@ async def _store_training_epochs(patient_id: str, report_id: Optional[str],
     except Exception as e:
         logger.warning(f"[EEG] Stockage époques échoué (table manquante?): {e}")
         return 0
+
+
+# ── Statut modèles IA ────────────────────────────────────────────────────────
+@router.get("/models/status", tags=["Modèles IA"])
+def models_status():
+    """
+    Health check des modèles DualClassifier chargés en mémoire.
+    Utilisé par le monitoring startup et le dashboard admin.
+    """
+    try:
+        from app.services.eeg.dsp.file_processor import _dual_clf
+        clf = _dual_clf
+        if clf is None:
+            return {
+                "status":  "unavailable",
+                "message": "DualClassifier non initialisé",
+                "models":  {},
+            }
+        return {
+            "status":  "ok" if (clf.status["conc_loaded"] and clf.status["stress_loaded"]) else "partial",
+            "models":  clf.status,
+        }
+    except Exception as exc:
+        return {"status": "error", "message": str(exc), "models": {}}
 
 
 # ── Statut ─────────────────────────────────────────────────────────────────────
@@ -237,8 +279,8 @@ async def analyze_file(
 ):
     """
     Analyse un fichier EEG (.edf, .csv, .txt) :
-    Golden Filter → z-score → 63 features FeatEng → LightGBM.
-    Retourne la classification par époque + résumé de session.
+    Golden Filter → z-score → DualClassifier (GRU_Att conc + GRU_Att stress).
+    Retourne la classification par époque + résumé de session + signal quality.
 
     Si le patient est authentifié, les époques haute confiance (≥ 0.85)
     sont automatiquement stockées dans training_epochs pour le fine-tuning.

@@ -1,7 +1,7 @@
 # dsp/file_processor.py
 """
 Traitement batch de fichiers EEG — EDF / CSV / TXT
-Pipeline : lecture → adaptation (fs, durée) → Golden Filter → FeatEng → LightGBM
+Pipeline : lecture → adaptation (fs, durée) → Golden Filter → DualClassifier (EEGNet DL+TL)
 
 Robustesse :
   - Rééchantillonnage automatique vers 250 Hz (128, 160, 200, 256 Hz...)
@@ -32,13 +32,13 @@ try:
 except Exception as _e:
     logger.warning(f"[FileProcessor] feature_eng non disponible : {_e}")
 
-_ml_clf = None
+_dual_clf = None
 try:
-    from .ml_classifier import MLClassifier
-    _ml_clf = MLClassifier()
-    logger.info("[FileProcessor] MLClassifier chargé")
+    from .dual_classifier import DualClassifier
+    _dual_clf = DualClassifier()
+    logger.info("[FileProcessor] DualClassifier chargé")
 except Exception as _e:
-    logger.warning(f"[FileProcessor] MLClassifier non disponible : {_e}")
+    logger.warning(f"[FileProcessor] DualClassifier non disponible : {_e}")
 
 # ── Constantes ────────────────────────────────────────────────────────────────
 TARGET_FS     = 250    # Hz cible (requis par le classifieur)
@@ -351,9 +351,10 @@ def process_signal(signal_uv: np.ndarray, fs: int = TARGET_FS) -> dict:
     """
     Pipeline batch complet :
       Adaptation (resample + pad) → découpage époques → Golden Filter
-      → z-score → 63 features FeatEng → LightGBM predict_proba
+      → z-score → DualClassifier (GRU_Att conc + GRU_Att stress)
 
     Robuste à tout fs et à tout signal ≥ 1 sample.
+    Les deux modèles tournent sur chaque époque — scores toujours non nuls.
     """
     # ── Adaptation ───────────────────────────────────────────────
     signal_uv, adapt_warnings = _adapt_signal(signal_uv, fs)
@@ -400,7 +401,7 @@ def process_signal(signal_uv: np.ndarray, fs: int = TARGET_FS) -> dict:
             start += STEP_SAMPLES
             continue
 
-        # ── 63 features FeatEng (z-score) ────────────────────────
+        # ── feat78 (z-score) — stockage fine-tuning uniquement, ignoré par EEGNet ──
         ml_features: dict = {}
         std = float(np.std(filtered))
         if _extract_feateng is not None and std > 1e-10:
@@ -410,35 +411,44 @@ def process_signal(signal_uv: np.ndarray, fs: int = TARGET_FS) -> dict:
             except Exception:
                 pass
 
-        # ── Prédiction LightGBM ───────────────────────────────────
+        # ── Prédiction duale (EEGNet DL FULL conc + EEGNet TL-LR FULL stress) ──
         ml_prediction = None
-        if ml_features and _ml_clf is not None:
+        if _dual_clf is not None:
             try:
-                ml_prediction = _ml_clf.predict_from_dict(ml_features)
+                ml_prediction = _dual_clf.predict(filtered.tolist(), ml_features)
             except Exception:
                 pass
 
         n_accepted += 1
-        # Inclure ml_features uniquement pour les époques haute confiance
-        # (confiance ≥ 0.85) — utilisées ensuite pour le fine-tuning personnel
+        # Inclure ml_features et epoch_filtered uniquement pour les époques
+        # haute confiance (≥ 0.85) — utilisées pour le fine-tuning dual
         store_features = (
             ml_features and ml_prediction
             and not ml_prediction.get("uncertain", True)
             and ml_prediction.get("confidence", 0) >= 0.85
         )
         epochs_result.append({
-            "epoch_idx":     n_accepted,
-            "time_s":        round(start / fs, 2),
-            "ml_prediction": ml_prediction,
-            "ml_features":   ml_features if store_features else None,
-            "amplitude_uv":  round(amp_range, 2),
-            "rms_uv":        round(rms_ep,    2),
+            "epoch_idx":      n_accepted,
+            "time_s":         round(start / fs, 2),
+            "ml_prediction":  ml_prediction,
+            "ml_features":    ml_features if store_features else None,
+            # Signal filtré z-scoré (1000 samples) — requis pour fine-tuning EEGNet
+            "epoch_filtered": filtered.tolist() if store_features else None,
+            "amplitude_uv":   round(amp_range, 2),
+            "rms_uv":         round(rms_ep,    2),
         })
 
         start += STEP_SAMPLES
 
     summary = _compute_summary(epochs_result)
     summary["adapt_warnings"] = adapt_warnings
+
+    rejection_rate = round((n_total - n_accepted) / max(n_total, 1) * 100, 1)
+    signal_quality = (
+        "bonne"    if rejection_rate < 20 else
+        "moyenne"  if rejection_rate < 50 else
+        "mauvaise"
+    )
 
     return {
         "n_samples":         n_samples,
@@ -447,6 +457,8 @@ def process_signal(signal_uv: np.ndarray, fs: int = TARGET_FS) -> dict:
         "n_epochs_total":    n_total,
         "n_epochs_accepted": n_accepted,
         "n_epochs_filtered": n_filtered,
+        "signal_quality":    signal_quality,
+        "rejection_rate":    rejection_rate,
         "epochs":            epochs_result,
         "summary":           summary,
     }
@@ -461,33 +473,53 @@ def _compute_summary(epochs: list) -> dict:
 
     if not preds:
         return {
-            "n_classified":      0,
-            "concentration_pct": 0.0,
-            "stress_pct":        0.0,
-            "uncertain_pct":     0.0,
-            "dominant_state":    "inconnu",
-            "mean_confidence":   0.0,
-            "adapt_warnings":    [],
+            "n_classified":       0,
+            "concentration_pct":  0.0,
+            "stress_pct":         0.0,
+            "neutral_pct":        0.0,
+            "uncertain_pct":      0.0,
+            "dominant_state":     "inconnu",
+            "mean_conc_score":    0.0,
+            "mean_stress_score":  0.0,
+            "mean_confidence":    0.0,
+            "adapt_warnings":     [],
         }
 
-    n        = len(preds)
-    n_conc   = sum(1 for p in preds if p["state"] == "concentration" and not p["uncertain"])
-    n_stress = sum(1 for p in preds if p["state"] == "stress"        and not p["uncertain"])
-    n_uncert = sum(1 for p in preds if p["uncertain"])
-    mean_conf = round(float(np.mean([p["confidence"] for p in preds])), 4)
+    n         = len(preds)
+    n_conc    = sum(1 for p in preds if p.get("dominant") == "concentration")
+    n_stress  = sum(1 for p in preds if p.get("dominant") == "stress")
+    n_neutral = sum(1 for p in preds if p.get("dominant") == "neutral")
 
-    dominant = (
-        "concentration" if n_conc > n_stress else
-        "stress"        if n_stress > n_conc  else
-        "neutre"
-    )
+    conc_scores   = [p["concentration"]["score"]
+                     for p in preds if isinstance(p.get("concentration"), dict)
+                     and isinstance(p["concentration"].get("score"), (int, float))]
+    stress_scores = [p["stress"]["score"]
+                     for p in preds if isinstance(p.get("stress"), dict)
+                     and isinstance(p["stress"].get("score"), (int, float))]
+    confidences   = [p["confidence"]
+                     for p in preds if isinstance(p.get("confidence"), (int, float))]
 
+    # Dominant par score moyen si count est ex-aequo
+    mean_c = float(np.mean(conc_scores))   if conc_scores   else 0.0
+    mean_s = float(np.mean(stress_scores)) if stress_scores else 0.0
+
+    if n_conc > n_stress:
+        dominant = "concentration"
+    elif n_stress > n_conc:
+        dominant = "stress"
+    else:
+        dominant = "concentration" if mean_c >= mean_s else "stress"
+
+    neutral_pct = round(n_neutral / n * 100, 1)
     return {
-        "n_classified":      n,
-        "concentration_pct": round(n_conc   / n * 100, 1),
-        "stress_pct":        round(n_stress / n * 100, 1),
-        "uncertain_pct":     round(n_uncert / n * 100, 1),
-        "dominant_state":    dominant,
-        "mean_confidence":   mean_conf,
-        "adapt_warnings":    [],
+        "n_classified":       n,
+        "concentration_pct":  round(n_conc   / n * 100, 1),
+        "stress_pct":         round(n_stress  / n * 100, 1),
+        "neutral_pct":        neutral_pct,
+        "uncertain_pct":      neutral_pct,
+        "dominant_state":     dominant,
+        "mean_conc_score":    round(mean_c, 2),
+        "mean_stress_score":  round(mean_s, 2),
+        "mean_confidence":    round(float(np.mean(confidences)) if confidences else 0.0, 3),
+        "adapt_warnings":     [],
     }
