@@ -1,7 +1,7 @@
 # NeuroCap Backend — FastAPI v3.0
 
 API asynchrone REST + WebSocket pour la plateforme de neurofeedback EEG NeuroCap.  
-Pipeline EEG temps réel (ESP32 → DSP → LightGBM) + fine-tuning automatique nocturne.
+Pipeline EEG temps réel (ESP32 → DSP → EEGNet DualClassifier) + fine-tuning nocturne automatique.
 
 ---
 
@@ -24,8 +24,8 @@ Pipeline EEG temps réel (ESP32 → DSP → LightGBM) + fine-tuning automatique 
 | Auth | JWT (python-jose) + bcrypt |
 | Temps réel | WebSocket `/ws/eeg` (signal + epochs + électrode) |
 | DSP | NumPy, SciPy, MNE, PyWavelets |
-| ML primaire | LightGBM (LOSO, 63 features FeatEng) |
-| Fine-tuning | LightGBM incremental (`init_model`) + APScheduler |
+| ML primaire | EEGNet DualClassifier (concentration AUC 0.751 · stress AUC 0.607) + LightGBM fallback |
+| Fine-tuning | LightGBM incremental (`init_model`) + APScheduler nocturne |
 | Scheduler | APScheduler AsyncIOScheduler (02:00 UTC) |
 | Config | python-dotenv + pydantic-settings |
 | Media | Cloudinary |
@@ -62,9 +62,9 @@ app/Backend/
 │       │   ├── dsp/
 │       │   │   ├── filters.py         # Golden Filter IIR 1–45 Hz
 │       │   │   ├── epochs.py          # EpochExtractor 4 s × 250 Hz + z-score
-│       │   │   ├── features.py        # Extraction 63 features spectrales/temporelles/ondelettes
+│       │   │   ├── features.py        # ~29 features spectrales/Hjorth/entropie (affichage dashboard live)
 │       │   │   ├── artifacts.py       # Détection artefacts EOG/EMG
-│       │   │   ├── ml_classifier.py   # LightGBM LOSO 63 features
+│       │   │   ├── dual_classifier.py # EEGNet DL+TL → concentration+stress 0–100 (production)
 │       │   │   └── file_processor.py  # Analyse offline .edf/.csv/.txt
 │       │   └── recording/
 │       │       └── csv_handler.py
@@ -201,7 +201,7 @@ Types de messages diffusés :
 |---|---|---|
 | `init` | Connexion | État ESP32, baseline, qualité électrode |
 | `eeg` | ~62 Hz | Échantillons signal brut |
-| `epoch` | Toutes 4 s | 63 features + état LightGBM + confiance |
+| `epoch` | Toutes 4 s | 29 features display + prédiction EEGNet (concentration+stress 0–100) + confiance |
 | `electrode` | Heartbeat | Qualité contact électrode |
 | `esp32_status` | Événement | Changement connexion ESP32 |
 

@@ -86,8 +86,8 @@ NeuroCap/
 - Welch PSD, DWT (PyWavelets), statistical and wavelet features
 - 17+ deep learning architectures benchmarked (EEGNet, CNN-LSTM, BiGRU-Attention …)
 - Transfer learning variants (feature extraction, layer replacement, full fine-tuning)
-- Baseline classifiers: Random Forest, SVM (RBF), XGBoost
-- **Best model:** CNN-LSTM + Attention — 89.4 % accuracy, F1: 0.89
+- Baseline classifiers: SVR, Random Forest, XGBoost, LightGBM (feat15 / feat78 × sans/avec SMOTE)
+- **Best model:** EEGNet DL FULL (concentration AUC = 0.751) · EEGNet TL-LR FULL (stress AUC = 0.607) — régression continue 0–100, validation LOSO stricte
 - Automated nightly fine-tuning (APScheduler) with per-patient checkpoints
 
 ### Internationalisation
@@ -130,7 +130,9 @@ app/Backend/
 │       │   │   ├── epochs.py       # Epoch extraction (4 s, 75 % overlap)
 │       │   │   ├── features.py     # PSD + DWT + statistical features
 │       │   │   ├── artifacts.py    # Artifact detection & rejection
-│       │   │   └── ml_classifier.py# LightGBM inference wrapper
+│       │   │   ├── ml_classifier.py    # LightGBM inference (feat63)
+│       │   │   ├── dual_classifier.py  # EEGNet DL+TL (concentration + stress 0–100)
+│       │   │   └── file_processor.py   # Offline .edf/.csv/.txt analysis
 │       │   └── recording/
 │       │       └── csv_handler.py  # Raw signal recording to CSV
 │       ├── finetune/
@@ -212,30 +214,36 @@ src/
 src/
 ├── data/
 │   ├── pipeline_fp2.py             # Full preprocessing pipeline (Fp2 electrode)
-│   ├── features_extraction.py      # PSD + DWT + statistical feature extraction
-│   ├── feature_eng.py              # Advanced feature engineering
-│   ├── augmentation_eeg.py         # EEG data augmentation (sliding window)
-│   ├── merge_datasets.py           # Merge concentration + stress datasets
+│   ├── pipeline_regression.py      # Regression coordinator (scoring → split → aug → feat)
+│   ├── features_extraction.py      # 15 lightweight features (embarquable ESP32)
+│   ├── feature_eng.py              # 78 advanced features (8 categories, ~35 ms)
+│   ├── augmentation_eeg.py         # EEG augmentation (5 experiments A/B/C/D/FULL)
+│   ├── scoring/                    # Score attribution 0–10 (concentration + stress)
 │   └── validate_data/
 │       ├── validate_concentration.py
 │       └── validate_stress.py
 └── models/
     ├── baselines/
-    │   ├── baseline_ML.py          # RF, SVM, XGBoost training & evaluation
-    │   └── compare_baselines_features.py
+    │   ├── baseline_ML_regression.py               # SVR/RF/XGB/LGBM — feat15
+    │   ├── baseline_ML_regression_feature_eng.py   # feat78
+    │   └── compare_baseline_global.py
+    ├── metrics_professional.py     # Shared metrics module (5 levels, LOSO)
     ├── deep_learning/
-    │   ├── architectures/          # 17+ model definitions (see below)
-    │   ├── train.py                # Training loop with early stopping
-    │   └── evaluate.py             # Evaluation & confusion matrix export
+    │   ├── DL_utils_regression.py  # Shared engine (CNNPreEncoder, Bahdanau, LOSO)
+    │   ├── architectures/          # 19 model definitions (see below)
+    │   └── compare.py              # Compare 19 architectures (figures + report)
     ├── transfer_learning/
-    │   ├── EEGNet_FeatureExtraction.py
-    │   ├── EEGNet_LayerReplacement.py
-    │   └── EEGNet_FullFT.py
-    └── inference/                  # Production inference scripts
+    │   ├── EEGNet_feature_extraction.py   # TL-2: frozen backbone
+    │   ├── EEGNet_full_finetuning.py      # TL-1: all layers unfrozen
+    │   ├── EEGNet_layer_replacement.py    # TL-3 ★: best stress AUC 0.607
+    │   └── compare_tl.py
+    ├── compare/
+    │   └── compare_all_models.py   # Global ML / DL / TL comparison → final decision
+    └── inference_engine.py         # Unified backend interface (InferenceEngine)
 ```
 
-**Deep learning architectures benchmarked:**
-`CNN1D · CNN2D · CNN3D · CNN_LSTM · CNN_GRU · CNN_LSTM_Att · CNN_GRU_Att · LSTM1L · LSTM2L · LSTM_Att · BiLSTM1L · BiLSTM2L · BiLSTM_Att · GRU1L · GRU2L · GRU_Att · BiGRU1L · BiGRU2L · BiGRU_Att · EEGNet · TCN`
+**Deep learning architectures benchmarked (19) :**
+`EEGNet · CNN1D · CNN2D · CNN3D · CNN_LSTM_Att · CNN_GRU_Att · LSTM1L · LSTM2L · LSTM_ATT · BiLSTM1L · BiLSTM2L · BiLSTM_ATT · GRU1L · GRU2L · GRU_ATT · BiGRU1L · BiGRU2L · BiGRU_ATT · TCN`
 
 ### `models/` — Trained Artefacts
 
@@ -321,7 +329,7 @@ docker compose -f docker/docker-compose.yml up --build
 | **Database** | Supabase (PostgreSQL) |
 | **Real-time** | WebSocket — EEG stream via FastAPI, TCP receiver for ESP32 |
 | **Email** | Brevo SMTP (300 emails/day, free tier — transactional verification codes) |
-| **ML / DSP** | PyTorch, NumPy, SciPy, MNE, PyWavelets, LightGBM, scikit-learn |
+| **ML / DSP** | PyTorch, NumPy, SciPy, MNE, PyWavelets, LightGBM, scikit-learn, XGBoost |
 | **Hardware** | AD8232 ECG module + ESP32 (single-channel Fp2, 250 Hz) |
 | **Deployment** | Docker Compose, Nginx (optional reverse proxy) |
 
