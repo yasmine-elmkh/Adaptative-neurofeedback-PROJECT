@@ -164,7 +164,7 @@ FT_PATIENCE = 12  # Early stopping plus patient
 FT_BATCH = 32
 ```
 
-**TL-3 en production :** `EEGNet_LR_stress_B_best.pt` → utilisé par `app/Backend/services/finetune/runner.py`
+**TL-3 en production :** `EEGNet_LR_stress_FULL_best.pt` → utilisé comme base par `app/Backend/app/services/finetune/runner.py` pour le fine-tuning nocturne (couche FC uniquement, backbone gelé)
 
 ---
 

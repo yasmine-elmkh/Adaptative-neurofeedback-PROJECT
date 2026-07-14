@@ -132,7 +132,7 @@ python src/models/compare/compare_all_models.py
 - **Split avant augmentation** : les epochs augmentées ne contaminent jamais le test set
 - **5 expériences d'augmentation** : A (original), B (Noise+Scale+Shift), C (B+DWT), D (MagWarp), FULL (A+B+C+D)
 - **2 sets de features** : feat15 (< 10 ms, embarquable ESP32) et feat78 (35 ms, R² +5 pts)
-- **Fine-tuning production** : personnalisation par patient via `app/Backend/services/finetune/runner.py`
+- **Fine-tuning production** : personnalisation par patient via `app/Backend/app/services/finetune/runner.py` (fine-tune la couche FC d'EEGNet, backbone gelé)
 
 ---
 

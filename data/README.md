@@ -1,6 +1,6 @@
-# NeuroCap — EEG Datasets
+# NeuroCap — EEG Datasets (`data/`)
 
-This folder contains all raw and processed EEG datasets used to train and evaluate the NeuroCap classifiers.
+Raw and processed EEG data for the NeuroCap regression pipeline (continuous 0–10 concentration/stress scores). This file documents **what lives where** — for the processing logic itself (scoring, preprocessing, augmentation, feature extraction), see [`src/data/README.md`](../src/data/README.md) and [`src/data/scoring/README.md`](../src/data/scoring/README.md).
 
 ---
 
@@ -8,94 +8,70 @@ This folder contains all raw and processed EEG datasets used to train and evalua
 
 ```
 data/
-├── Dataset/
+├── Dataset/                                          # Raw recordings (source of truth, never modified)
 │   ├── Cognitive Load Assessment Concentration/
-│   │   └── raw_data/          # Raw CSV files — concentration task (Fp2, 250 Hz)
+│   │   └── raw_data/                                 # .txt files, OpenBCI Cyton, 200 Hz, 15 subjects
 │   └── Stress_dataset/
-│       ├── raw_data/          # Raw CSV files — stress recordings
-│       ├── filtered_data/     # Bandpass 1–45 Hz + notch 50 Hz applied
-│       └── artifact_removal/  # ICA / threshold-based artefact rejection
-├── Augmentation/
-│   └── datasets_augmented/    # Time-shift, noise injection, amplitude scaling
-├── Merge_datasets/
-│   └── datasets_merged/       # Combined concentration + stress → unified CSV
-└── Validate_datasets/
-    ├── outputs_concentration_fp2/  # Holdout validation — concentration class
-    ├── outputs_stress_fp2/         # Holdout validation — stress class
-    └── utils/                      # Validation helper scripts
+│       ├── raw_data/                                 # .mat files, Emotiv Epoc Flex, 128 Hz, 40 subjects
+│       └── scales.xls                                # Self-reported stress scores (1–10) — ground truth
+│
+├── Scoring/                                           # Output of src/data/scoring/*.py
+│   ├── scored_concentration.csv                       # ~1,859 epochs — conc_score 0–10
+│   ├── scored_stress.csv                               # ~2,879 epochs — stress_score 0–10
+│   └── merged/                                        # Signals + scores reassembled → .npy
+│       ├── X_concentration.npy · y_conc_score.npy · subjects_concentration.npy · levels_concentration.npy
+│       └── X_stress.npy · y_stress_score.npy · subjects_stress.npy
+│
+├── Regression/                                         # Output of src/data/pipeline_regression.py
+│   ├── preprocessed/                                   # Filtered + resampled signals, pre-split
+│   │   └── X_conc.npy · y_conc.npy · subjects_conc.npy · levels_conc.npy · X_stress.npy · y_stress.npy · subjects_stress.npy
+│   └── augmented/                                      # Subject-wise 70/15/15 split, then augmented
+│       ├── conc/       X_train_{A,B,C,D,FULL}.npy · y_train_{A,B,C,D,FULL}.npy · X_val.npy · X_test.npy · y_val.npy · y_test.npy
+│       └── stress/     (same layout)
+│
+└── Validate_datasets/                                  # Output of src/data/validate_data/*.py
+    ├── outputs_concentration_fp2/                       # 12 diagnostic figures (see its own README)
+    ├── outputs_stress_fp2/                               # 10 diagnostic figures
+    └── utils/                                           # Shared plotting/loading helpers (eeg_utils.py)
 ```
+
+Feature matrices extracted from `Regression/augmented/` (feat15 / feat78) are written to `Features/conc/` and `Features/stress/` at the project root, not under `data/`.
 
 ---
 
 ## Datasets
 
-### Concentration dataset
-- **Source:** Cognitive Load Assessment — Fp2 single-channel EEG
-- **Sampling rate:** 250 Hz
-- **Electrode:** Fp2 (prefrontal)
-- **Labels:** `concentration` (1), `rest` (0)
-- **Format:** CSV — columns: `timestamp`, `eeg_value`, `label`
+| Dataset | Source | Subjects | Native rate | Task | Ground truth |
+|---|---|---|---|---|---|
+| **CLA** (Cognitive Load Assessment) | OpenBCI Cyton, single channel Fp2 | 15 | 200 Hz | Arithmetic / Stroop, 4 load levels | Task level (natural/low/mid/high) + EEG biomarkers |
+| **SAM40** | Emotiv Epoc Flex, 32 channels (AF3 used) | 40 | 128 Hz | Relax / Arithmetic / Social stress / Stroop | Self-reported score 1–10 (`scales.xls`) |
 
-### Stress dataset
-- **Source:** Emotional stress induction protocol
-- **Sampling rate:** 250 Hz
-- **Electrode:** Fp2
-- **Labels:** `stress` (1), `rest` (0)
-- **Format:** CSV
+Both datasets are resampled to **250 Hz** to match the AD8232/ESP32 hardware sampling rate, and are processed by **two fully independent pipelines** — they are never merged (different hardware, different electrodes).
 
 ---
 
-## Preprocessing pipeline
+## Pipeline stages (summary)
 
 ```
-Raw CSV
-  ↓  Bandpass filter (1–45 Hz, 4th-order Butterworth)
-  ↓  Notch filter (50 Hz, removes power-line noise)
-  ↓  Baseline correction (mean subtraction per epoch)
-  ↓  Artefact rejection (amplitude threshold ±150 µV)
-  ↓  Epoch segmentation (4 s windows, 50% overlap)
-Clean epochs (shape: N × 1000 samples)
+Dataset/ (raw)
+   │  src/data/validate_data/  — integrity checks
+   ▼
+Scoring/ (scored_*.csv, merged/*.npy)
+   │  src/data/scoring/  — 0–10 score attribution
+   ▼
+Regression/ (preprocessed/, augmented/)
+   │  src/data/pipeline_regression.py  — filter → subject split → augment
+   ▼
+Features/ (feat15, feat78)             → src/models/  — ML / DL / TL training
 ```
 
----
-
-## Data augmentation
-
-Applied to balance classes and increase dataset size:
-
-| Technique | Description |
-|---|---|
-| Gaussian noise | Add σ = 0.5 µV white noise |
-| Time shift | Random circular shift ±50 samples |
-| Amplitude scaling | Scale by 0.85–1.15× |
-| Sign flip | Invert polarity (valid for Fp2) |
-
-Augmentation scripts: `src/data/` and `data/Augmentation/`.
-
----
-
-## Merge strategy
-
-The concentration and stress datasets are merged into a 3-class problem:
-
-| Class | Label | Source |
-|---|---|---|
-| `rest` | 0 | Both datasets (rest periods) |
-| `concentration` | 1 | Concentration dataset |
-| `stress` | 2 | Stress dataset |
-
-Merged files are in `data/Merge_datasets/datasets_merged/`.
-
----
-
-## Validation split
-
-Holdout sets (never used during training) are in `data/Validate_datasets/`. Results of validation runs are saved to `reports/EDA/Validation/`.
+Full detail, execution order, and script-level documentation: [`src/README.md`](../src/README.md).
 
 ---
 
 ## Notes
 
-- All data is recorded at a single electrode (Fp2) for compatibility with the AD8232 hardware used in NeuroCap.
+- All data is recorded/processed at a single active electrode compatible with the AD8232 + Fp2 hardware used in NeuroCap.
 - No personally identifiable information is present in the datasets.
-- Large binary files (`.npy`, `.h5`, processed CSVs) are excluded from git via `.gitignore`.
+- `.npy`, processed CSVs, and other large binary outputs under `data/` are excluded from git via `.gitignore` — only raw source data and code are versioned.
+- CLA dataset reference: Nirabi et al., 2024. SAM40 dataset reference: Ghosh et al., 2021.

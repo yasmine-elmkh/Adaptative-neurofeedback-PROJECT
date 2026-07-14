@@ -25,7 +25,7 @@ The scripts load already-trained models from disk. They will silently skip (`[SK
 
 | Script | Required paths |
 |---|---|
-| `test_baselines.py` | `models/Baseline/` et `models/baseline_FeatEng/` |
+| `test_baselines.py` | `models/Regression/Baseline/feat15/`, `feat15_smote/`, `feat78/`, `feat78_smote/` |
 | `test_deep_learning.py` | `models/Regression/DL/<ModelName>/` + LOSO metrics JSON |
 | `test_finetuning.py` | `models/Regression/TL/<StrategyName>/` |
 | `test_final_comparaison.py` | `reports/Tests/baselines/results.json` + `reports/Tests/deep_learning/results.json` + `reports/Tests/finetuning/results.json` |

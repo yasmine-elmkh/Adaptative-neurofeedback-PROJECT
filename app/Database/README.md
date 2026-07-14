@@ -1,30 +1,35 @@
-# NeuroCap Database — Supabase v3.0
+# NeuroCap Database — Supabase
 
-Toutes les données sont stockées dans **Supabase** (PostgreSQL hébergé). Le backend communique via le client async `supabase-py` ; aucune requête SQL directe n'est émise depuis le code applicatif.
-
----
-
-## Déploiement
-
-**Un seul fichier à exécuter** dans l'éditeur SQL Supabase :
-
-```
-app/Database/schema_v3.sql
-```
-
-> Idempotent — safe à relancer plusieurs fois (`IF NOT EXISTS` + `ADD COLUMN IF NOT EXISTS`).  
-> Ce fichier remplace et consolide tous les anciens fichiers de migration.
+All data lives in **Supabase** (hosted PostgreSQL). The backend talks to it exclusively through the async `supabase-py` client — no raw SQL is issued from application code.
 
 ---
 
-## Schéma v3.0
+## Deployment
+
+Run **one file** in the Supabase SQL editor:
+
+```
+app/Database/supabase_complete.sql
+```
+
+> Idempotent — safe to re-run (`IF NOT EXISTS` + `ADD COLUMN IF NOT EXISTS`). This is the current, consolidated schema (23 tables): core accounts/sessions/EEG tables, the 15-session protocol engine, the media recommendation engine, and the free-mode feedback system.
+
+Optional, after the schema is created:
+```
+app/Database/migrations/seed_medias.sql   # seeds demo media assets into Supabase Storage
+```
+
+---
+
+## Core Schema
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  users                                                                   │
 │  id · email · username · first_name · last_name                         │
 │  role (patient|therapist|admin) · is_active                             │
-│  therapist_id (FK → users) · deleted_at · created_at                   │
+│  therapist_id (FK → users) · consent_accepted · consent_date            │
+│  deleted_at · created_at                                                 │
 └────────────────────┬────────────────────────────────────────────────────┘
                      │ 1:N
       ┌──────────────┼──────────────┐
@@ -39,16 +44,16 @@ app/Database/schema_v3.sql
 │ ...       │  │ palier       │  │ dominant_   │
 └─────┬─────┘  │ finetuned_   │  │   state     │
       │ 1:N    │   version    │  │ epochs_json │
-      ▼        │ last_finetune│  └──────┬──────┘
-┌──────────────│   _at        │         │ 1:N
-│session_events│ last_20_sess │         ▼
-│ id           │   _accuracy  │  ┌─────────────────┐
-│ session_id   └──────────────┘  │ training_epochs │
-│ concentration                  │ id              │
+      ▼        │ conc_checkpoint  └──────┬──────┘
+┌──────────────│ stress_checkpoint       │ 1:N
+│session_events│ last_finetune_at        ▼
+│ id           │ last_20_sess    ┌─────────────────┐
+│ session_id   │   _accuracy     │ training_epochs │
+│ concentration└──────────────┘  │ id              │
 │ stress_rate                    │ patient_id      │
-│ tbr · ei                       │ predicted_label │
-│ block_number                   │ confidence      │
-└──────────────┘                 │ features (JSONB)│ ← 63 features FeatEng
+│ tbr · ei                       │ epoch_filtered  │ ← raw samples for EEGNet fine-tune
+│ block_number                   │ conc_score      │
+└──────────────┘                 │ stress_score    │
                                  │ is_high_conf    │
                                  │ used_in_finetune│
                                  └─────────────────┘
@@ -60,7 +65,7 @@ app/Database/schema_v3.sql
 │ status (pending|running|done)   │
 │ n_epochs_used                   │
 │ accuracy_before · accuracy_after│
-│ model_version · checkpoint_path │
+│ model_checkpoint_path           │
 │ started_at · finished_at        │
 └─────────────────────────────────┘
 
@@ -78,72 +83,96 @@ app/Database/schema_v3.sql
 └──────────────────────────────────┘   └───────────────────────────────┘
 ```
 
----
-
-## Tables
-
 ### `users`
-Comptes utilisateurs avec rôle (`patient` / `therapist` / `admin`), soft-delete (`deleted_at`), et lien thérapeute assigné (`therapist_id`).
+Accounts with role (`patient` / `therapist` / `admin`), soft-delete (`deleted_at`), assigned therapist (`therapist_id`), and consent tracking (`consent_accepted`, `consent_date`).
 
 ### `eeg_profiles`
-Profil cognitif de chaque patient : type A/B/C, IAPF, TBR baseline, palier P1–P4.  
-Colonnes fine-tuning v3.0 : `finetuned_version`, `finetuned_model_checkpoint`, `last_finetune_at`, `last_20_sessions_accuracy`.
+Cognitive profile per patient: type A/B/C, IAPF, baseline TBR, palier P1–P4. Fine-tuning columns: `finetuned_version`, `conc_checkpoint`, `stress_checkpoint`, `last_finetune_at`, `last_20_sessions_accuracy`.
 
 ### `sessions` / `session_events`
-Sessions de neurofeedback et leurs événements EEG par bloc (concentration, stress, TBR, qualité signal).
+Neurofeedback sessions and their per-block EEG events (concentration, stress, TBR, signal quality).
 
 ### `eeg_reports`
-Rapports d'analyse EEG stockés après chaque analyse fichier (`/api/eeg/analyze_file`) ou session live. Contient le résumé statistique + tableau JSON des époques.
+Analysis reports saved after a file analysis (`/api/eeg/analyze_file`) or a live session. Contains the statistical summary + JSON epoch table.
 
 ### `training_epochs`
-Epochs haute-confiance (≥ 0.85) extraites lors des analyses fichiers. Stockées en JSONB (63 features FeatEng). Utilisées comme données d'entraînement pour le fine-tuning LightGBM.
+High-confidence epochs (≥ 0.85) captured during file/live analysis, including the raw filtered samples (`epoch_filtered`) needed to fine-tune EEGNet, plus the concentration/stress scores. Used as the personalisation data for nightly fine-tuning.
 
 ### `finetuning_jobs`
-Historique de chaque run de fine-tuning automatique. Trace le type de déclenchement, le nombre d'epochs utilisées, l'accuracy avant/après, et le chemin du checkpoint sauvegardé.
+History of every automated fine-tuning run: trigger type, epochs used, loss before/after, checkpoint path.
 
 ### `therapist_notes` / `therapist_recommendations`
-Notes cliniques et objectifs hebdomadaires définis par le thérapeute pour ses patients.
+Clinical notes and weekly objectives set by the therapist for their patients.
 
-### `audit_logs`
-Journal de toutes les mutations admin (création/modification/suppression d'utilisateurs, changements de settings).
-
-### `system_settings`
-Paramètres configurables via l'interface admin : durée blocs, nombre blocs, seuil TBR fatigue, export anonymisé, etc.
+### `audit_logs` / `system_settings`
+Admin mutation trail and configurable system parameters (block duration, block count, fatigue TBR threshold, anonymised export, etc.).
 
 ---
 
-## Fichiers du dossier
+## Protocol Engine Tables
 
-| Fichier | Usage |
+15-session adaptive protocol — see [`src/services/protocol_engine.py`](../Backend/app/services/protocol_engine.py) and [`app/Backend/README.md`](../Backend/README.md#protocol--apiprotocol).
+
+| Table | Role |
 |---|---|
-| `schema_v3.sql` | **Schéma complet v3.0 — fichier unique à exécuter** |
-| `historique.sql` | Exemples de requêtes analytiques SQL (debug / reporting) |
-| `inserer_donnees.py` | Script de seed pour données de démo/test |
-| `archive/NeuroCap_DB.sql` | Schéma initial v1 — archivé, ne pas utiliser |
-| `archive/supabase_migration.sql` | Migration v1→v2 — archivée, ne pas utiliser |
-| `archive/migration_roles.sql` | Migration rôles v1 — archivée, ne pas utiliser |
-| `archive/migration_roles_v2.sql` | Migration rôles v2 — archivée, ne pas utiliser |
+| `protocol_sessions` | Per-session state of the 15-session program (thresholds, blocs config, completion) |
+| `protocol_blocs` | Individual block results within a protocol session |
+| `user_protocol_progress` | Calendar-level progress tracking, used for the therapist progress dashboard |
 
-> Tout le contenu des fichiers archivés est consolidé et à jour dans `schema_v3.sql`.
+## Media Recommendation Tables
+
+EEG-state-driven adaptive media engine — see [`media_recommendation.py`](../Backend/app/services/media_recommendation.py).
+
+| Table | Role |
+|---|---|
+| `medias` | Media asset catalogue (audio/image/video/game) |
+| `media_interactions` | Per-media interaction log (played, skipped, liked) |
+| `user_media_preferences` | Learned per-patient preferences, feeds the recommendation scoring |
+| `recommendations_media` | Generated recommendations per patient |
+| `playlists` / `playlist_media` | Patient-created personal playlists |
+| `offline_recommendations` | Recommendations generated after an offline file analysis |
+
+## Free-Mode Feedback Tables
+
+Non-protocol neurofeedback sessions — see [`app/Backend/app/routes/feedback.py`](../Backend/app/routes/feedback.py).
+
+| Table | Role |
+|---|---|
+| `feedback_sessions` | Free-mode session records |
+| `feedback_session_events` | Per-block events within a free-mode session |
 
 ---
 
-## Rôles
+## Files in this folder
 
-| Valeur | Description |
+| File | Usage |
 |---|---|
-| `patient` | Utilisateur effectuant des sessions neurofeedback |
-| `therapist` | Clinicien supervisant ses patients assignés |
-| `admin` | Administrateur système |
+| `supabase_complete.sql` | **Current schema — the single file to run (23 tables)** |
+| `migrations/seed_medias.sql` | Optional — seeds demo media assets |
+| `historique.sql` | Example analytical SQL queries (debugging / reporting) |
+| `inserer_donnees.py` | Demo/test data seed script |
+| `schema_v3.sql` | Previous consolidated schema (11 core tables) — superseded by `supabase_complete.sql`, kept for history |
+| `migrations/004_protocol_15_sessions.sql`, `005_media_recommendations.sql`, `006_protocol_progress.sql`, `add_feedback_sessions.sql`, `add_medias_table.sql`, `update_sessions_calendar.sql` | Incremental migrations, already merged into `supabase_complete.sql` — kept for history, do not run individually against a fresh database |
+| `archive/*.sql` | v1/v2 schema and role migrations — archived, do not use |
+
+---
+
+## Roles
+
+| Value | Description |
+|---|---|
+| `patient` | User performing neurofeedback sessions |
+| `therapist` | Clinician supervising assigned patients |
+| `admin` | System administrator |
 
 ---
 
 ## Soft delete
 
-Les utilisateurs sont soft-deletés via `deleted_at = NOW()`. La suppression hard est possible via `DELETE /api/admin/users/{id}?hard=true`. Le backend filtre automatiquement les soft-deleted de toutes les requêtes de liste.
+Users are soft-deleted via `deleted_at = NOW()`. Hard delete is available via `DELETE /api/admin/users/{id}?hard=true`. The backend automatically filters soft-deleted users out of every list query.
 
 ---
 
 ## Row-Level Security (RLS)
 
-RLS est **désactivé** sur toutes les tables car le backend utilise la **service-role key** côté serveur, qui bypasse RLS. Tout le contrôle d'accès est appliqué au niveau FastAPI (`get_current_user`, `get_therapist_user`, `get_admin_user`).
+RLS is **disabled** on all tables because the backend uses the **service-role key** server-side, which bypasses RLS. All access control is enforced at the FastAPI level (`get_current_user`, `get_therapist_user`, `get_admin_user`).

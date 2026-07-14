@@ -1,5 +1,7 @@
 # backend-signal — NeuroCap EEG · Serveur Python temps réel
 
+> **Archivé.** Implémentation originale et autonome (auteure : Oumama Sendadi), conservée telle quelle pour référence et traçabilité. Le pipeline DSP qu'elle contient a depuis été intégré dans `app/Backend/app/services/eeg/` — voir [`app/Backend/README.md`](../../app/Backend/README.md). N'utilisez pas ce serveur en production ; démarrez plutôt `app/Backend/`.
+
 Serveur Python complet pour l'acquisition, le traitement DSP, la classification ML, le protocole neurofeedback adaptatif et la diffusion WebSocket/REST du signal EEG capté par l'ESP32 via le casque NeuroCap.
 
 ---

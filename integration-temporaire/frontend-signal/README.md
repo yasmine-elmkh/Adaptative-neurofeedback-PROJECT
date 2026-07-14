@@ -1,5 +1,7 @@
 # frontend-signal — NeuroCap EEG · Interface React
 
+> **Archivé.** Implémentation originale et autonome (auteure : Oumama Sendadi), conservée telle quelle pour référence et traçabilité. Les composants signal qu'elle contient ont depuis été intégrés dans `app/Frontend/src/components/eeg/` — voir [`app/Frontend/README.md`](../../app/Frontend/README.md). N'utilisez pas cette interface en production ; démarrez plutôt `app/Frontend/`.
+
 Interface React temps réel pour visualiser, analyser et piloter le neurofeedback EEG NeuroCap. Se connecte au `backend-signal` via WebSocket et REST.
 
 ---

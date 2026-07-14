@@ -134,8 +134,8 @@ Pour chaque dataset (concentration, stress) :
         y_train = np.load("datasets_augmented/y_train_{exp}.npy")
         
         features_train = [get_feature_vector(ep) for ep in X_train]
-        → sauvegarde "features/features_extraction/{dataset}/feat15_train_{exp}.npy"
-        → sauvegarde "features/features_extraction/{dataset}/y_train_{exp}.npy"
+        → sauvegarde "Features/{dataset}/feat15_train_{exp}.npy"
+        → sauvegarde "Features/{dataset}/y_train_{exp}.npy"
     
     X_val  = np.load("datasets_augmented/X_val.npy")
     X_test = np.load("datasets_augmented/X_test.npy")
@@ -172,8 +172,8 @@ B   | (2480, 15)  | (186, 15) | (186, 15)
 ## Structure des fichiers de sortie
 
 ```
-features/features_extraction/
-├── concentration/
+Features/
+├── conc/
 │   ├── feat15_train_A.npy      # (N_train, 15)
 │   ├── feat15_train_B.npy      # (N_train×2, 15)
 │   ├── feat15_train_C.npy      # (N_train×3, 15)
