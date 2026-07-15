@@ -49,6 +49,12 @@ logs/
 .idea/
 *.swp
 
+# Rapport PFE / soutenance — jamais pushé (voir suivi local uniquement)
+/Rapport_PFE/
+/docx/
+complete_presentation.py
+*.log
+
 # Config sensibles — NE JAMAIS committer les fichiers .env
 .env
 .env.*
