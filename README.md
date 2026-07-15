@@ -366,27 +366,43 @@ Epochs
 ### Oumama Sendadi
 **Signal Processing & Feedback System**
 
+**Backend / DSP**
 - **DSP pipeline** (`app/Backend/app/services/eeg/dsp/`) — bandpass/notch filters, epoch extraction, artifact detection & rejection, Welch PSD and DWT feature computation
 - **Signal service** (`services/signal_processing.py`) — offline signal processing utilities
-- **Neurofeedback components** (`app/Frontend/src/components/feedback/`, `neurofeedback/`) — all feedback modalities and the mini-games (`MemoryGame`, `PuzzleGame`, `SudokuGame`, `CalculGame`, `EnigmeGame`)
 - **Feedback metadata** (`Feedback_METADATA/`) — media assets and metadata extraction from feedback sessions
-- **Original standalone implementation** — `integration-temporaire/backend-signal/`, `integration-temporaire/frontend-signal/` (later merged into `app/`)
+
+**Frontend**
+- **Neurofeedback components** (`app/Frontend/src/components/feedback/`, `neurofeedback/`) — all feedback modalities and the mini-games (`MemoryGame`, `PuzzleGame`, `SudokuGame`, `CalculGame`, `EnigmeGame`)
+
+**Original implementation**
+- `integration-temporaire/backend-signal/`, `integration-temporaire/frontend-signal/` — original standalone version, later merged into `app/`
 
 ### Yasmine El Mkhantar
-**Full-stack Integration & ML Pipeline**
+**Full-stack Integration & ML Pipeline** — sole developer of the full-stack web application (`app/`), backend and frontend, detailed by layer below.
 
-- **Full-stack web application** (`app/`) — FastAPI backend architecture, all REST routes, Supabase database integration, React frontend SPA
-- **Authentication system** — JWT auth (access + refresh tokens), email verification (Brevo SMTP), password strength validation, brute-force protection, audit logging, consent flow
+**Backend**
+- **Web application backend** (`app/Backend/`) — FastAPI architecture, all REST routes, Supabase database integration
+- **Authentication system** (`app/Backend/app/core/security.py`, `routes/auth.py`) — JWT auth (access + refresh tokens), email verification (Brevo SMTP), password strength validation, brute-force protection, audit logging, consent flow
 - **EEGNet DualClassifier** (`app/Backend/app/services/eeg/dsp/dual_classifier.py`) — integration of trained EEGNet models (concentration AUC 0.751 · stress AUC 0.607), continuous 0–100 regression, sigmoid normalisation, nightly personal fine-tuning (APScheduler)
-- **ML pipeline** (`src/`) — full regression pipeline: scoring 0–10, 5-experiment augmentation, feat15/feat78 (78 features, 8 categories), 19 DL architectures, 3 EEGNet transfer-learning strategies, shared 5-level metrics module (LOSO, bootstrap CI, DCA)
-- **RAG assistant NeuroCoach** (`Assistant_rag/`, `app/Backend/app/services/rag_service.py`) — semantic knowledge base, BM25 + Ollama embeddings, DeepSeek/Groq/Ollama LLM cascade, patient-context assembly, `/explain` endpoint
-- **Neurofeedback & protocol** — `FeedbackPage.jsx` 3-phase session, 15-session adaptive protocol engine, Thompson Sampling persisted in Supabase, media recommendation engine
-- **EEG selector & electrode guide** — preparation protocol, 10-20 schema, AD8232 wiring, pre-session checklist
-- **Dashboard & visualisations** — Brain3D anatomy, simulation mode, recommendation engine, topographic map, real-time signal canvas
-- **Therapist space** — URL-driven tabbed dashboard, patient sheet (EEG profile type A/B/C, paliers P1–P4), inactivity alerts, clinical notes, CSV export
-- **Internationalisation** — full FR / EN / AR, RTL layout, light/dark/auto theme
+- **RAG assistant NeuroCoach — backend** (`Assistant_rag/`, `app/Backend/app/services/rag_service.py`) — semantic knowledge base, BM25 + Ollama embeddings, DeepSeek/Groq/Ollama LLM cascade, patient-context assembly, `/explain` endpoint
+- **Protocol & recommendation engines** (`app/Backend/app/services/protocol_engine.py`, `media_recommendation.py`) — 15-session adaptive protocol engine, Thompson Sampling persisted in Supabase, media recommendation engine
+- **Admin & audit system** (`app/Backend/app/routes/admin.py`) — user/role management, system settings, audit log
+
+**Frontend**
+- **React SPA** (`app/Frontend/`) — routing, pages, API integration
+- **Dashboard & visualisations** (`DashboardPage.jsx`, `Brain3D.jsx`, `RecommendationEngine.jsx`, `TopoMap2D.jsx`) — Brain3D anatomy, simulation mode, recommendation engine, topographic map, real-time signal canvas
+- **EEG selector & electrode guide** (`EEGSelector.jsx`, `ElectrodeGuide.jsx`) — preparation protocol, 10-20 schema, AD8232 wiring, pre-session checklist
+- **Neurofeedback session UI** (`FeedbackPage.jsx`) — 3-phase session flow (setup → live → report)
+- **Therapist space** (`TherapistDashboard.jsx`, `TherapistPatientDetail.jsx`) — URL-driven tabbed dashboard, patient sheet (EEG profile type A/B/C, paliers P1–P4), inactivity alerts, clinical notes, CSV export
+- **Admin dashboard & panel** (`AdminDashboard.jsx`, `AdminPanel.jsx`) — global KPIs, user management, role assignment, audit log review
+- **NeuroCoach chat UI** (`Assistant.jsx`, `RAGChat.jsx`) — chat interface, `/explain` integration
+- **Internationalisation** (`src/i18n/`) — full FR / EN / AR, RTL layout, light/dark/auto theme
+
+**ML Pipeline** (`src/`)
+- **Data pipeline** — scoring 0–10 (CLA levels + SAM40 self-reports), subject-wise split, 5-experiment augmentation (A/B/C/D/FULL), feat15/feat78 feature extraction (8 categories)
+- **Deep learning** — 19 architectures benchmarked (EEGNet, CNN, LSTM/GRU/BiLSTM/BiGRU variants, TCN, hybrids), shared training engine with strict LOSO validation
+- **Transfer learning & evaluation** — 3 EEGNet transfer-learning strategies, shared 5-level metrics module (bootstrap CI, calibration, Decision Curve Analysis)
 
 ---
 
-**Project:** NeuroCap – Easy Medical Device (2025–2026) · ENSAM Rabat, PFE Ingénierie Biomédicale
-**Supervisors:** Monir El Azzouzi, Loubna El Rhali, Yassir Matrane
+**Projet :** NeuroCap sous Easy Medical Device

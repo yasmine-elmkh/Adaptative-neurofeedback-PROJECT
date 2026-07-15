@@ -83,8 +83,7 @@ These figures directly informed the design of the preprocessing pipeline (`src/d
 ## Authors
 
 Scripts & analysis: **Yasmine El Mkhantar**
-Supervisors: Monir El Azzouzi, Loubna El Rhali, Yassir Matrane
-Project: NeuroCap – Easy Medical Device (2025–2026)
+Projet : NeuroCap sous Easy Medical Device
 
 ## License
 
