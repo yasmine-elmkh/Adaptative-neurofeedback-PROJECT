@@ -325,9 +325,11 @@ export default function FeedbackPage() {
   const handleStart = (selectedState) => {
     navigate('/feedback/session', {
       state: {
-        eeg_state:                 selectedState,
+        mode:                       'manual',
+        eeg_state:                  selectedState,
         classification_confidence:  confidence ?? 0,
         features_snapshot:          features ?? null,
+        statePreSelected:           true,
         fromProtocol:               fromProtocol ?? false,
         sessionN:                   sessionN ?? null,
       },

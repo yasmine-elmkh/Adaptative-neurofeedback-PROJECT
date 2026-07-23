@@ -247,7 +247,7 @@ function EmptyState({ t, onStartSession }) {
       <div className="flex gap-3 mt-2 flex-wrap justify-center">
         <button className="btn-primary" onClick={onStartSession}>
           <Play className="w-4 h-4" />
-          Commencer une séance
+          {t('dashboard.start_session')}
         </button>
       </div>
     </div>
@@ -735,12 +735,18 @@ export default function DashboardPage() {
   if (!sessionList.length && !eegReports.length) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        <div className="flex items-center gap-2 text-nc-muted text-sm">
-          <LayoutDashboard className="w-4 h-4" />
-          <span>{t('dashboard.title')}</span>
-          <span className="text-nc-text font-semibold ms-1">
-            {user?.first_name || user?.email?.split('@')[0] || ''}
-          </span>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2 text-nc-muted text-sm">
+            <LayoutDashboard className="w-4 h-4" />
+            <span>{t('dashboard.title')}</span>
+            <span className="text-nc-text font-semibold ms-1">
+              {user?.first_name || user?.email?.split('@')[0] || ''}
+            </span>
+          </div>
+          <button className="btn-primary shrink-0" onClick={() => navigate('/session/setup')}>
+            <Play className="w-4 h-4" />
+            {t('dashboard.start_session')}
+          </button>
         </div>
         <SessionCalendar patientId={user?.id} />
         <EmptyState t={t} onStartSession={() => navigate('/session/setup')} />

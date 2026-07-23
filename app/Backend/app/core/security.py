@@ -75,7 +75,13 @@ async def get_current_user(
     if not user_id or payload.get("type") != "access":
         raise HTTPException(status_code=401, detail="Token invalide")
 
-    resp = await db.table("users").select("*").eq("id", user_id).execute()
+    try:
+        resp = await db.table("users").select("*").eq("id", user_id).execute()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Service temporairement indisponible: {exc}",
+        )
     user = resp.data[0] if resp.data else None
 
     if not user or not user.get("is_active"):

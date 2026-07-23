@@ -441,6 +441,16 @@ export default function CalibrationSession({ onComplete, onSkip } = {}) {
       >
         Commencer la calibration →
       </button>
+
+      {onSkip && (
+        <button
+          onClick={onSkip}
+          className="w-full py-2.5 rounded-xl text-sm font-medium text-nc-muted
+                     border border-nc-border hover:bg-nc-surface2 hover:text-nc-text transition-colors"
+        >
+          Passer cette étape →
+        </button>
+      )}
     </div>
   )
 

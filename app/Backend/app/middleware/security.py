@@ -272,13 +272,17 @@ def add_security_middleware(app) -> None:
     # Les données EEG (1000 float32 = ~4 KB) sont très en dessous.
     @app.middleware("http")
     async def request_size_middleware(request: Request, call_next):
-        max_size = 10 * 1024 * 1024  # 10 MB
+        max_size = 50 * 1024 * 1024  # 50 MB (EEG CSV recordings can be 10–30 MB)
         content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > max_size:
-            return JSONResponse(
-                status_code=413,
-                content={"detail": "Requête trop volumineuse. Maximum 10 MB."},
-            )
+        if content_length:
+            try:
+                if int(content_length) > max_size:
+                    return JSONResponse(
+                        status_code=413,
+                        content={"detail": "Requête trop volumineuse. Maximum 50 MB."},
+                    )
+            except (ValueError, TypeError):
+                pass  # malformed Content-Length — let the request through
         return await call_next(request)
 
     # ── Couche 4 : Headers de sécurité HTTP ───────────────────────────────────
@@ -294,10 +298,13 @@ def add_security_middleware(app) -> None:
         # Prévient les attaques de type "content-type confusion".
         response.headers["X-Content-Type-Options"] = "nosniff"
 
+        # Illusion HTML files are intentionally embedded in our own iframes —
+        # skip clickjacking headers for that specific route only.
+        is_illusion_html = request.url.path.startswith("/api/media/illusions/html/")
+
         # ── X-Frame-Options ──────────────────────────────────────────────────
-        # Interdit l'affichage de l'app dans une iframe.
-        # Prévient les attaques de clickjacking.
-        response.headers["X-Frame-Options"] = "DENY"
+        if not is_illusion_html:
+            response.headers["X-Frame-Options"] = "DENY"
 
         # ── Strict-Transport-Security (HSTS) ─────────────────────────────────
         # Force le navigateur à utiliser HTTPS pendant 1 an.
@@ -308,22 +315,17 @@ def add_security_middleware(app) -> None:
             )
 
         # ── Content-Security-Policy ──────────────────────────────────────────
-        # Restreint les sources de contenu pour prévenir les injections XSS.
-        # Explications :
-        #   default-src 'self'          → tout le contenu doit venir du même domaine
-        #   script-src 'self'           → scripts uniquement depuis le domaine (pas d'inline)
-        #   style-src 'unsafe-inline'   → nécessaire pour Tailwind CSS (classes dynamiques)
-        #   img-src cloudinary.com      → images depuis Cloudinary autorisées
-        #   connect-src wss:            → WebSockets EEG autorisés
-        #   frame-ancestors 'none'      → renforce X-Frame-Options
+        frame_ancestors = "'self'" if is_illusion_html else "'none'"
+        # For illusion HTML, allow inline scripts/styles (they are self-contained animations)
+        script_src = "'self' 'unsafe-inline'" if is_illusion_html else "'self'"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "script-src 'self'; "
+            f"script-src {script_src}; "
             "style-src 'self' 'unsafe-inline'; "
             f"img-src 'self' data: https://res.cloudinary.com; "
             "connect-src 'self' wss: ws:; "
             "font-src 'self'; "
-            "frame-ancestors 'none'; "
+            f"frame-ancestors {frame_ancestors}; "
             "base-uri 'self'; "
             "form-action 'self';"
         )

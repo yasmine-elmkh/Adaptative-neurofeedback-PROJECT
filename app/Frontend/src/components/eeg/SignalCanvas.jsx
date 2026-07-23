@@ -10,18 +10,16 @@ const MARGIN_RIGHT  = 10     // marge droite
 const Y_LEVELS = [1, 0.5, 0, -0.5, -1]
 
 const STATE_COLOR = {
-  focused:  '#00ffcc',
-  stressed: '#ff4444',
-  relaxed:  '#4488ff',
-  neutral:  '#88aacc',
-  invalid:  '#445566',
+  concentration: '#00ffcc',
+  stress:        '#ff4444',
+  uncertain:     '#f5a623',
+  neutral:       '#88aacc',
 }
 const GLOW_COLOR = {
-  focused:  'rgba(0,255,204,.30)',
-  stressed: 'rgba(255,68,68,.30)',
-  relaxed:  'rgba(68,136,255,.30)',
-  neutral:  'rgba(136,170,204,.12)',
-  invalid:  'rgba(68,85,102,.08)',
+  concentration: 'rgba(0,255,204,.30)',
+  stress:        'rgba(255,68,68,.30)',
+  uncertain:     'rgba(245,166,35,.30)',
+  neutral:       'rgba(136,170,204,.12)',
 }
 
 // ── Calcul d'échelle robuste (percentile 5–95 %) ─────────────────────────────

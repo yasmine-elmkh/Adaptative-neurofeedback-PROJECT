@@ -298,3 +298,103 @@ def generate_consent_pdf(patient_name: str) -> bytes:
     pdf_bytes = buffer.getvalue()
     buffer.close()
     return pdf_bytes
+
+
+def generate_session_progress_pdf(
+    patient_name: str,
+    session_number: int,
+    phase: str,
+    palier: int,
+    score: int,
+    delta_alpha: float,
+    delta_beta: float,
+    items_played: int,
+    items_efficaces: int,
+    session_success: bool,
+    report_text: str,
+    completed_at: str,
+) -> bytes:
+    """Génère le PDF d'avancement pour une séance NeuroCap terminée."""
+    from reportlab.platypus import Table, TableStyle
+    from reportlab.lib import colors as _colors
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=2.5 * cm,
+        leftMargin=2.5 * cm,
+        topMargin=2 * cm,
+        bottomMargin=2 * cm,
+    )
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle("PT", parent=styles["Heading1"], fontSize=16, alignment=TA_CENTER,
+                                 textColor=_colors.HexColor("#1a3a5c"), fontName="Helvetica-Bold", spaceAfter=4)
+    sub_style   = ParagraphStyle("PS", parent=styles["Normal"], fontSize=10, alignment=TA_CENTER,
+                                 textColor=_colors.HexColor("#2b6cb0"), spaceAfter=16)
+    label_style = ParagraphStyle("PL", parent=styles["Normal"], fontSize=9, textColor=_colors.HexColor("#4a5568"),
+                                 spaceAfter=4)
+    body_style  = ParagraphStyle("PB", parent=styles["Normal"], fontSize=9, leading=14, spaceAfter=6,
+                                 alignment=TA_JUSTIFY)
+
+    eff_pct = round(items_efficaces / items_played * 100) if items_played > 0 else 0
+    phase_label = {"phase1": "Phase 1 — Découverte", "phase2": "Phase 2 — Apprentissage", "phase3": "Phase 3 — Consolidation"}.get(phase, phase)
+    date_str = completed_at[:10] if completed_at else date.today().isoformat()
+
+    story = []
+
+    story.append(Paragraph("NeuroCap — Rapport de Séance", title_style))
+    story.append(Paragraph(f"Patient : {patient_name}  ·  Date : {date_str}", sub_style))
+    story.append(HRFlowable(width="100%", thickness=1, color=_colors.HexColor("#2b6cb0")))
+    story.append(Spacer(1, 0.4 * cm))
+
+    story.append(Paragraph(f"<b>Séance {session_number}/15</b> — {phase_label} — Palier P{palier}", label_style))
+    story.append(Paragraph(
+        f"Résultat : <b>{'Séance réussie ✓' if session_success else 'Séance terminée'}</b>",
+        ParagraphStyle("PR", parent=styles["Normal"], fontSize=10, spaceAfter=12,
+                       textColor=_colors.HexColor("#276749" if session_success else "#744210")),
+    ))
+
+    # Tableau métriques
+    data = [
+        ["Métrique", "Valeur", "Interprétation"],
+        ["Score global", f"{score}/100", "Excellent" if score >= 70 else "Bon" if score >= 40 else "À améliorer"],
+        ["Delta Alpha", f"{'+' if delta_alpha >= 0 else ''}{delta_alpha:.3f}", "Relaxation ↑" if delta_alpha > 0 else "Stable"],
+        ["Delta Beta",  f"{'+' if delta_beta >= 0 else ''}{delta_beta:.3f}",  "Stress ↓" if delta_beta < 0 else "Stable"],
+        ["Médias joués", f"{items_played}", "—"],
+        ["Médias efficaces", f"{items_efficaces} ({eff_pct}%)", "Taux d'efficacité"],
+    ]
+    tbl = Table(data, colWidths=[5 * cm, 3.5 * cm, 7 * cm])
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND",   (0, 0), (-1, 0),  _colors.HexColor("#2b6cb0")),
+        ("TEXTCOLOR",    (0, 0), (-1, 0),  _colors.white),
+        ("FONTNAME",     (0, 0), (-1, 0),  "Helvetica-Bold"),
+        ("FONTSIZE",     (0, 0), (-1, -1), 9),
+        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [_colors.HexColor("#f7fafc"), _colors.white]),
+        ("GRID",         (0, 0), (-1, -1), 0.4, _colors.HexColor("#cbd5e0")),
+        ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
+        ("PADDING",      (0, 0), (-1, -1), 5),
+    ]))
+    story.append(tbl)
+    story.append(Spacer(1, 0.5 * cm))
+
+    if report_text:
+        story.append(Paragraph("<b>Analyse IA — Claude</b>", label_style))
+        story.append(HRFlowable(width="100%", thickness=0.5, color=_colors.HexColor("#cbd5e0")))
+        story.append(Spacer(1, 0.2 * cm))
+        for line in report_text.split("\n"):
+            if line.strip():
+                story.append(Paragraph(line.strip(), body_style))
+
+    story.append(Spacer(1, 1 * cm))
+    story.append(Paragraph(
+        f"Document généré le {date.today().isoformat()} — NeuroCap © 2025",
+        ParagraphStyle("PF", parent=styles["Normal"], fontSize=7, alignment=TA_CENTER,
+                       textColor=_colors.grey),
+    ))
+
+    doc.build(story)
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+    return pdf_bytes

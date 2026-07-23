@@ -15,6 +15,7 @@ import UserFeedbackBar           from '../components/feedback/UserFeedbackBar'
 import SessionBlockTimer         from '../components/feedback/SessionBlockTimer'
 import FeedbackReport            from '../components/feedback/FeedbackReport'
 import MediaNeuroscienceGuide    from '../components/feedback/MediaNeuroscienceGuide'
+import AdaptiveGuideCard        from '../components/feedback/AdaptiveGuideCard'
 
 // ── Constantes protocole (Mou et al., 2024 ; Wu et al., 2022) ─────────────────
 const TOTAL_BLOCKS          = 6
@@ -180,48 +181,205 @@ const AI_GUIDES = {
     science: 'EEG delta (32s) · Habituation threshold vidéo = 2 séquences',
   },
 
-  // ── GAME ────────────────────────────────────────────────────────────────────
+  // ── GAME (fallback générique) ────────────────────────────────────────────────
   stress_game: {
     icon: '🎨', title: 'Coloriage thérapeutique',
     color: 'text-blue-400', bg: 'bg-blue-500/8', border: 'border-blue-500/20',
-    tip: 'Sélectionné selon votre indice de stress EEG. Le coloriage de mandalas ou motifs géométriques réduit l\'activation corticale et ancre l\'attention dans le présent (Clément 2015, VPD Vygotsky 1978).',
+    tip: 'Coloriage de mandalas ou motifs géométriques sélectionné selon votre indice de stress EEG. Réduit l\'activation corticale et ancre l\'attention dans le présent (Clément 2015).',
     steps: [
       'Remplissez chaque zone lentement — sans viser la perfection',
       'Focalisez sur le mouvement de coloration, pas le résultat',
       'Choisissez les couleurs instinctivement',
       'Si une erreur arrive, continuez — le process est thérapeutique',
     ],
-    science: 'Coloriage mandala/nature sélectionné via stress_idx + historique · Niveau adaptatif VPD',
+    science: 'Coloriage mandala/nature · stress_idx + historique · Niveau adaptatif VPD',
   },
   concentration_game: {
     icon: '🧩', title: 'Jeu de concentration active',
     color: 'text-emerald-400', bg: 'bg-emerald-500/8', border: 'border-emerald-500/20',
-    tip: 'Sudoku, mémoire ou calcul sélectionné selon votre delta_alpha EEG. Le niveau s\'adapte : monte si error_rate < 20% et delta_beta > 0.05, descend si error_rate > 60%.',
+    tip: 'Jeu sélectionné selon votre delta_beta EEG. Le niveau s\'adapte : monte si error_rate < 20%, descend si error_rate > 60%.',
     steps: [
       'Résolvez méthodiquement, une étape à la fois',
       'Ne passez à la suivante qu\'après avoir stabilisé votre réponse',
       'Si bloqué, respirez et re-visualisez le problème',
       'Le niveau s\'adapte automatiquement — faites confiance au système',
     ],
-    science: 'Delta_alpha Thompson · Niveau ZPD : error_rate + delta_beta · Focus/mémoire/calcul',
+    science: 'Delta_alpha Thompson · Niveau ZPD : error_rate + delta_beta',
   },
   neutral_game: {
     icon: '🔲', title: 'Puzzle de transition',
     color: 'text-purple-400', bg: 'bg-purple-500/8', border: 'border-purple-500/20',
-    tip: 'Type de puzzle sélectionné selon votre ratio α/β. L\'assemblage spatial engage simultanément les circuits visuels et frontaux pour rééquilibrer vos ondes.',
+    tip: 'Jeu de calibration pour mesurer votre charge cognitive de référence. Chaque interaction affine votre profil adaptatif.',
     steps: [
-      'Commencez par identifier les bords et les coins',
-      'Cherchez ensuite les patterns et textures similaires',
-      'Progressez metho­diquement sans vous précipiter',
-      'L\'engagement visuo-spatial équilibre alpha et beta',
+      'Jouez à votre rythme naturel — sans stratégie forcée',
+      'Notez si le jeu est trop facile, adapté ou difficile',
+      'Évaluez votre ressenti honnête avec les étoiles',
+      'Chaque session calibre le moteur adaptatif',
     ],
-    science: 'Sliding/jigsaw/tangram selon ratio α/β · Habituation threshold = 1 partie',
+    science: 'Calibration charge cognitive · Prior Thompson Sampling',
+  },
+
+  // ── GAME · ÉNIGME / CALCUL ───────────────────────────────────────────────────
+  stress_game_eni: {
+    icon: '💡', title: 'Énigme de décentrage',
+    color: 'text-blue-400', bg: 'bg-blue-500/8', border: 'border-blue-500/20',
+    tip: 'Énigme facile sélectionnée pour détourner l\'attention des pensées ruminatives. L\'engagement cognitif léger brise le cycle stress-rumination et active les circuits préfrontaux (Ochsner 2002).',
+    steps: [
+      'Lisez l\'énigme calmement — sans pression de temps',
+      'Inspirez avant de répondre pour clarifier la réflexion',
+      'Si bloqué, passez : le skip est une donnée d\'apprentissage',
+      'Focalisez sur le raisonnement, pas la bonne réponse',
+    ],
+    science: 'Déduction légère · Activation PFC → suppression amygdale · error_rate adaptatif',
+  },
+  concentration_game_eni: {
+    icon: '🧮', title: 'Calcul de concentration active',
+    color: 'text-emerald-400', bg: 'bg-emerald-500/8', border: 'border-emerald-500/20',
+    tip: 'Problème mathématique calibré sur votre delta_beta EEG. L\'attention analytique soutenue ancre les oscillations beta frontales (Engel & Fries 2010).',
+    steps: [
+      'Décomposez le problème en étapes — une à la fois',
+      'Verbalisez mentalement chaque étape de raisonnement',
+      'Si bloqué 30s : respirez, reformulez, essayez encore',
+      'Le niveau s\'adapte : erreur = donnée pour la prochaine sélection',
+    ],
+    science: 'Raisonnement logique séquentiel · Delta_beta Thompson · Niveau ZPD adaptatif',
+  },
+  neutral_game_eni: {
+    icon: '🔢', title: 'Exploration cognitive',
+    color: 'text-purple-400', bg: 'bg-purple-500/8', border: 'border-purple-500/20',
+    tip: 'Énigme de calibration pour mesurer votre charge cognitive de référence. Votre ratio temps/erreur entraîne le moteur adaptatif.',
+    steps: [
+      'Résolvez à votre rythme naturel — sans optimiser',
+      'Notez votre niveau de difficulté ressenti',
+      'Donnez votre ressenti honnête avec les étoiles',
+      'Chaque énigme affine votre profil cognitif adaptatif',
+    ],
+    science: 'Calibration charge cognitive · Prior uniforme Thompson Sampling',
+  },
+
+  // ── GAME · SUDOKU ────────────────────────────────────────────────────────────
+  stress_game_sud: {
+    icon: '🔲', title: 'Sudoku de régulation',
+    color: 'text-blue-400', bg: 'bg-blue-500/8', border: 'border-blue-500/20',
+    tip: 'Sudoku facile pour ancrer l\'attention dans une tâche structurée. La logique déductive simple réduit l\'hyperactivité de l\'amygdale (Ochsner 2002).',
+    steps: [
+      'Commencez par les cases évidentes — construisez la confiance',
+      'Avancez lentement, une case à la fois',
+      'Respirez entre chaque décision — pas de précipitation',
+      'La méthode compte plus que la vitesse',
+    ],
+    science: 'Logique structurée · Activation PFC → régulation émotionnelle · Niveau adaptatif',
+  },
+  concentration_game_sud: {
+    icon: '🧩', title: 'Sudoku de concentration avancée',
+    color: 'text-emerald-400', bg: 'bg-emerald-500/8', border: 'border-emerald-500/20',
+    tip: 'Niveau sudoku calibré sur votre engagement EEG. La contrainte multi-règles engage l\'attention soutenue et la mémoire de travail simultanément.',
+    steps: [
+      'Planifiez avant d\'agir — identifiez les contraintes globales',
+      'Travaillez par blocs de 3×3 puis vérifiez les rangées',
+      'Maintenez la carte mentale du puzzle complet',
+      'Accélérez progressivement quand vous maîtrisez',
+    ],
+    science: 'Multi-contrainte spatiale · WM + attention soutenue · Niveau ZPD adaptatif',
+  },
+  neutral_game_sud: {
+    icon: '🔲', title: 'Sudoku de calibration',
+    color: 'text-purple-400', bg: 'bg-purple-500/8', border: 'border-purple-500/20',
+    tip: 'Calibration de votre performance logique de base. Établit le niveau pour adapter les séances suivantes.',
+    steps: [
+      'Jouez normalement, sans stratégie particulière',
+      'Votre temps et taux d\'erreur sont analysés en arrière-plan',
+      'Donnez votre ressenti honnête avec les étoiles',
+      'Chaque grille affine votre profil adaptatif',
+    ],
+    science: 'Profil logique baseline · Calibration niveau ZPD',
+  },
+
+  // ── GAME · MÉMOIRE ───────────────────────────────────────────────────────────
+  stress_game_mem: {
+    icon: '🃏', title: 'Mémoire de décentrage',
+    color: 'text-blue-400', bg: 'bg-blue-500/8', border: 'border-blue-500/20',
+    tip: 'Jeu de mémoire visuelle pour rediriger les ressources cognitives loin du stress. L\'encodage court mobilise l\'hippocampe et réduit la rumination (Baddeley 2003).',
+    steps: [
+      'Observez chaque carte attentivement pendant 2-3 secondes',
+      'Visualisez l\'emplacement — créez une image mentale',
+      'Respirez lentement entre chaque retournement',
+      'Les erreurs sont normales et s\'améliorent naturellement',
+    ],
+    science: 'WM visuo-spatiale · Activation hippocampale · Suppression rumination',
+  },
+  concentration_game_mem: {
+    icon: '🧠', title: 'Mémoire de travail active',
+    color: 'text-emerald-400', bg: 'bg-emerald-500/8', border: 'border-emerald-500/20',
+    tip: 'Exercice de mémoire de travail calibré sur vos ondes beta frontales. L\'entraînement WM augmente la capacité d\'attention soutenue (Klingberg 2010).',
+    steps: [
+      'Encodez activement : nommez mentalement chaque image',
+      'Construisez des associations entre paires similaires',
+      'Maintenez une image mentale de la grille complète',
+      'Accélérez progressivement une fois les paires mémorisées',
+    ],
+    science: 'WM training · Beta frontal · Klingberg 2010 · Niveau adaptatif capacité',
+  },
+  neutral_game_mem: {
+    icon: '🃏', title: 'Exploration mnésique',
+    color: 'text-purple-400', bg: 'bg-purple-500/8', border: 'border-purple-500/20',
+    tip: 'Calibration de votre capacité mnésique de travail. Les données alimentent le moteur adaptatif pour les séances suivantes.',
+    steps: [
+      'Jouez naturellement — aucune stratégie forcée',
+      'Votre vitesse d\'encodage et de rappel sont mesurés',
+      'Évaluez votre effort ressenti avec les étoiles',
+      'Chaque partie calibre votre profil mnésique adaptatif',
+    ],
+    science: 'Capacité WM baseline · Prior Thompson Sampling mnésique',
+  },
+
+  // ── GAME · PUZZLE / TANGRAM ──────────────────────────────────────────────────
+  stress_game_puz: {
+    icon: '🧩', title: 'Puzzle spatial anti-stress',
+    color: 'text-blue-400', bg: 'bg-blue-500/8', border: 'border-blue-500/20',
+    tip: 'Assemblage spatial léger pour ancrer l\'attention visuelle et réduire le vagabondage mental. L\'engagement visuo-spatial déplace les ressources du réseau du mode par défaut (Buckner 2008).',
+    steps: [
+      'Cherchez les bords et coins en premier — cadre de référence',
+      'Progressez par zones — regroupez les pièces similaires',
+      'Respirez lentement entre chaque pièce placée',
+      'La satisfaction de chaque placement est thérapeutique',
+    ],
+    science: 'Visuospatial → DMN suppression · Cortex pariétal · Anti-rumination',
+  },
+  concentration_game_puz: {
+    icon: '🔳', title: 'Puzzle de focalisation avancée',
+    color: 'text-emerald-400', bg: 'bg-emerald-500/8', border: 'border-emerald-500/20',
+    tip: 'Puzzle calibré sur votre ratio alpha/beta. L\'assemblage tactique engage les circuits frontaux et pariétaux en mode top-down et bottom-up simultanément.',
+    steps: [
+      'Planifiez la stratégie avant de déplacer des pièces',
+      'Identifiez les patterns et textures répétitives',
+      'Maintenez une image mentale du résultat final',
+      'Accélérez quand vous entrez dans l\'état de flux',
+    ],
+    science: 'Frontopariétal · Attention top-down + bottom-up · Ratio α/β adaptatif',
+  },
+  neutral_game_puz: {
+    icon: '🧩', title: 'Exploration visuospatiale',
+    color: 'text-purple-400', bg: 'bg-purple-500/8', border: 'border-purple-500/20',
+    tip: 'Calibration de votre profil spatial. Les données d\'assemblage alimentent le moteur adaptatif.',
+    steps: [
+      'Assemblez naturellement — sans optimiser votre approche',
+      'Notez si c\'est intuitif ou demande un effort conscient',
+      'Donnez votre ressenti honnête avec les étoiles',
+      'Chaque puzzle calibre votre profil visuospatial',
+    ],
+    science: 'Profil spatial baseline · Prior Thompson Sampling visuospatial',
   },
 }
 
-// Sélection guide : {état}_{type} → fallback {état}_audio → fallback neutral_audio
-function selectGuide(eegState, mediaType) {
+// Sélection guide : pour les jeux, utilise le préfixe du filename (ENI, COL, SUD, MEM, PUZ)
+function selectGuide(eegState, mediaType, filename) {
   const type = mediaType ?? 'audio'
+  if (type === 'game' && filename) {
+    const prefix = filename.slice(0, 3).toLowerCase()  // 'eni', 'col', 'sud', 'mem', 'puz'
+    const subtypeKey = `${eegState}_game_${prefix}`
+    if (AI_GUIDES[subtypeKey]) return AI_GUIDES[subtypeKey]
+  }
   return (
     AI_GUIDES[`${eegState}_${type}`] ??
     AI_GUIDES[`${eegState}_audio`]   ??
@@ -229,8 +387,8 @@ function selectGuide(eegState, mediaType) {
   )
 }
 
-function AIGuideCard({ eegState, mediaType, blockIndex }) {
-  const g = selectGuide(eegState, mediaType)
+function AIGuideCard({ eegState, mediaType, mediaFilename, blockIndex }) {
+  const g = selectGuide(eegState, mediaType, mediaFilename)
   const blockLabel = blockIndex < 2 ? 'Découverte' : blockIndex < 4 ? 'Apprentissage' : 'Consolidation'
   const typeLabel  = { audio: 'Audio', image: 'Image', video: 'Vidéo', game: 'Jeu' }[mediaType] ?? '—'
 
@@ -321,14 +479,23 @@ function PauseOverlay({ remaining, blockNext, totalBlocks, successRate, newThres
 }
 
 // ── Questionnaire pré-séance ──────────────────────────────────────────────────
-function PreQuestionnaire({ onSubmit }) {
-  const [values, setValues] = useState({ fatigue: 5, stress: 5, motivation: 5 })
+const EEG_STATES = [
+  { key: 'stress',        label: 'Stressé / Agité',     icon: '😟', color: 'text-red-400',     border: 'border-red-500/40',     bg: 'bg-red-500/10'     },
+  { key: 'neutral',       label: 'Neutre / Calme',       icon: '😌', color: 'text-blue-400',    border: 'border-blue-500/40',    bg: 'bg-blue-500/10'    },
+  { key: 'concentration', label: 'Concentré / Focalisé', icon: '🎯', color: 'text-emerald-400', border: 'border-emerald-500/40', bg: 'bg-emerald-500/10' },
+]
+
+function PreQuestionnaire({ onSubmit, isDemo }) {
+  const [values,        setValues]        = useState({ fatigue: 5, stress: 5, motivation: 5 })
+  const [selectedState, setSelectedState] = useState(null)
 
   const items = [
     { key: 'fatigue',    label: 'Fatigue',    left: 'Reposé', right: 'Épuisé' },
     { key: 'stress',     label: 'Stress',     left: 'Calme',  right: 'Stressé' },
     { key: 'motivation', label: 'Motivation', left: 'Faible', right: 'Élevée' },
   ]
+
+  const canSubmit = !isDemo || selectedState !== null
 
   return (
     <div className="max-w-xl mx-auto px-4 py-10 space-y-8 animate-fade-in">
@@ -339,6 +506,33 @@ function PreQuestionnaire({ onSubmit }) {
         <h1 className="text-2xl font-bold text-nc-text">Avant la séance</h1>
         <p className="text-sm text-nc-muted">Comment vous sentez-vous en ce moment ? (échelle 1–10)</p>
       </div>
+
+      {/* Sélecteur d'état EEG — uniquement en mode manuel (pas de casque) */}
+      {isDemo && (
+        <div className="space-y-3">
+          <p className="text-xs font-semibold text-nc-muted uppercase tracking-wide">
+            État cognitif actuel
+          </p>
+          <div className="grid grid-cols-3 gap-3">
+            {EEG_STATES.map(s => (
+              <button
+                key={s.key}
+                onClick={() => setSelectedState(s.key)}
+                className={`flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all
+                  ${selectedState === s.key
+                    ? `${s.bg} ${s.border} ${s.color}`
+                    : 'bg-nc-surface2 border-nc-border text-nc-muted hover:border-nc-border/70'}`}
+              >
+                <span className="text-2xl">{s.icon}</span>
+                <span className="text-xs font-semibold text-center leading-tight">{s.label}</span>
+              </button>
+            ))}
+          </div>
+          {!selectedState && (
+            <p className="text-xs text-nc-muted/60 text-center">Sélectionnez votre état pour continuer</p>
+          )}
+        </div>
+      )}
 
       <div className="space-y-6">
         {items.map(({ key, label, left, right }) => (
@@ -364,8 +558,9 @@ function PreQuestionnaire({ onSubmit }) {
       </div>
 
       <button
-        onClick={() => onSubmit(values)}
-        className="btn-primary w-full py-3 text-sm font-semibold flex items-center justify-center gap-2"
+        onClick={() => onSubmit(values, selectedState)}
+        disabled={!canSubmit}
+        className="btn-primary w-full py-3 text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
       >
         Commencer la séance <ChevronRight className="w-4 h-4" />
       </button>
@@ -463,17 +658,22 @@ export default function FeedbackSession() {
     features_snapshot: initialFeatures = null,
     classification_confidence: initialConf = 0,
     mode: sessionMode = 'live',
+    statePreSelected = false,
   } = location.state || {}
 
-  const isDemo = sessionMode === 'demo' || sessionMode === 'manual'
+  const isDemo       = sessionMode === 'demo' || sessionMode === 'manual'
+  const skipBaseline = isDemo || sessionMode === 'file'  // pas d'EEG live → pas de baseline
 
   // ── State session ──
   const [sessionId,    setSessionId]    = useState(null)
   const [sessionNum,   setSessionNum]   = useState(null)
   const [sessionPhase, setSessionPhase] = useState('phase1')
   const [sessionPalier,setSessionPalier]= useState(1)
+  // Gate: show breathing BEFORE media at the start of every block (all modes)
+  const [blockBreathingDone, setBlockBreathingDone] = useState(false)
 
-  const [phase,        setPhase]        = useState(PHASES.PRE_QUESTIONNAIRE)
+  // Si l'état EEG a été sélectionné en amont (FeedbackPage), on saute le questionnaire
+  const [phase, setPhase] = useState(statePreSelected ? PHASES.PRE_SESSION : PHASES.PRE_QUESTIONNAIRE)
   const [blockIndex,   setBlockIndex]   = useState(0)
   const [pauseRemaining, setPauseRemaining] = useState(PAUSE_DURATION)
   const [currentMediaId, setCurrentMediaId] = useState(null)
@@ -505,14 +705,26 @@ export default function FeedbackSession() {
   // Features EEG en cours (live) — ref pour éviter de recréer le callback trop souvent
   const liveFeaturesRef = useRef(initialFeatures)
 
+  // Détection électrode déconnectée (live uniquement)
+  const [electrodeOff, setElectrodeOff] = useState(false)
+
   // ── WebSockets ──
-  const { eegFrame, epochFrame } = useEEGWebSocket()
-  const { currentMedia, sessionReport: wsReport, send: fbSend } = useFeedbackSocket(sessionId)
+  const { eegFrame, epochFrame, rejectedFrame } = useEEGWebSocket()
+  const { currentMedia: wsMedia, sessionReport: wsReport, send: fbSend } = useFeedbackSocket(sessionId)
+
+  // Source d'affichage unifiée : mise à jour par WS ou par la réponse HTTP (fallback)
+  const [currentMedia, setCurrentMedia] = useState(null)
+
+  useEffect(() => {
+    if (wsMedia) setCurrentMedia(wsMedia)
+  }, [wsMedia?.id])
 
   const [mlPrediction, setMlPrediction] = useState(
-    isDemo
-      ? { state: 'neutral', confidence: 0.75 }
-      : (initialConf > 0 ? { state: initialEegState, confidence: initialConf } : null)
+    statePreSelected
+      ? { state: initialEegState, confidence: 0.9 }
+      : isDemo
+        ? { state: 'neutral', confidence: 0.75 }
+        : (initialConf > 0 ? { state: initialEegState, confidence: initialConf } : null)
   )
 
   // Mise à jour état cognitif depuis le signal EEG (classificateur Z-score)
@@ -537,6 +749,14 @@ export default function FeedbackSession() {
   // ── Mise à jour des features live en continu ──
   useEffect(() => {
     if (epochFrame?.features) liveFeaturesRef.current = epochFrame.features
+  }, [epochFrame])
+
+  // ── Détection électrode déconnectée ──
+  useEffect(() => {
+    if (rejectedFrame?.reason === 'electrode_off') setElectrodeOff(true)
+  }, [rejectedFrame])
+  useEffect(() => {
+    if (epochFrame?.features) setElectrodeOff(false)
   }, [epochFrame])
 
   // ── EWMA + tracking succès pendant FEEDBACK_BLOCK ──
@@ -595,7 +815,8 @@ export default function FeedbackSession() {
   // ── Transitions automatiques de phases ──
   useEffect(() => {
     if (phase === PHASES.PRE_SESSION) {
-      const t = setTimeout(() => setPhase(PHASES.BASELINE_CLOSED), 3000)
+      // live uniquement → baseline EEG 2 min ; file/manual/demo → skip directement au premier bloc
+      const t = setTimeout(() => skipBaseline ? finalizeBaseline() : setPhase(PHASES.BASELINE_CLOSED), 3000)
       return () => clearTimeout(t)
     }
     if (phase === PHASES.BASELINE_CLOSED) {
@@ -604,12 +825,12 @@ export default function FeedbackSession() {
     }
   }, [phase])
 
-  // ── Demande du premier média au début du premier bloc ──
+  // ── Demande du premier média seulement après la respiration pré-bloc ──
   useEffect(() => {
-    if (phase === PHASES.FEEDBACK_BLOCK && sessionId) {
+    if (phase === PHASES.FEEDBACK_BLOCK && blockBreathingDone && sessionId) {
       requestNextMedia()
     }
-  }, [phase, sessionId])
+  }, [phase, blockBreathingDone, sessionId])
 
   // ── Finalisation baseline → calcul seuil initial ──
   function finalizeBaseline() {
@@ -627,13 +848,14 @@ export default function FeedbackSession() {
   const requestNextMedia = useCallback(async () => {
     if (!sessionId) return
     try {
-      const eegState    = eegStateToObjective(mlPrediction?.state)
-      // En mode live/offline, on envoie les features et la confiance du classificateur
-      // pour que le backend puisse affiner la sélection de médias.
-      // En mode manuel, liveFeaturesRef.current = initialFeatures (snapshot du questionnaire)
-      const features    = isDemo ? null : liveFeaturesRef.current
-      const confidence  = mlPrediction?.confidence ?? null
-      await fbApi.recommend(sessionId, eegState, null, features, confidence)
+      const eegState   = eegStateToObjective(mlPrediction?.state)
+      const rawFeatures = isDemo ? null : liveFeaturesRef.current
+      // N'envoyer les features que si elles ont au moins un champ valide
+      const features = rawFeatures && typeof rawFeatures === 'object' && Object.keys(rawFeatures).length > 0
+        ? rawFeatures : null
+      const confidence = mlPrediction?.confidence ?? null
+      const res = await fbApi.recommend(sessionId, eegState, null, features, confidence)
+      if (res?.media) setCurrentMedia(res.media)
     } catch (e) {
       console.error('recommend error', e)
     }
@@ -641,6 +863,7 @@ export default function FeedbackSession() {
 
   function startBlock(idx) {
     setBlockIndex(idx)
+    setBlockBreathingDone(false)   // reset breathing gate for each block
     setPhase(PHASES.FEEDBACK_BLOCK)
     epochAlphaRef.current = []
     epochBetaRef.current  = []
@@ -769,9 +992,7 @@ export default function FeedbackSession() {
   }, [sessionId, mediaPlayedLog, deltaAlpha, deltaBeta])
 
   // ── Dérivés affichage ──────────────────────────────────────────────────────
-  const eegState   = mlPrediction?.state ?? 'neutral'
-  const showBreath = eegState === 'stress' && phase === PHASES.FEEDBACK_BLOCK
-  const showFocus  = eegState === 'concentration' && phase === PHASES.FEEDBACK_BLOCK
+  const eegState = mlPrediction?.state ?? 'neutral'
 
   const phaseLabel = {
     [PHASES.PRE_QUESTIONNAIRE]:  'Questionnaire initial',
@@ -819,14 +1040,12 @@ export default function FeedbackSession() {
   if (phase === PHASES.PRE_QUESTIONNAIRE) {
     return (
       <PreQuestionnaire
-        onSubmit={data => {
+        isDemo={isDemo}
+        onSubmit={(data, selectedState) => {
           setPreData(data)
-          // En mode sans EEG, dériver l'état cognitif depuis les réponses
           if (isDemo) {
-            const derivedState = data.stress >= 7 ? 'stress'
-              : (data.motivation >= 7 && data.fatigue <= 4) ? 'concentration'
-              : 'neutral'
-            setMlPrediction({ state: derivedState, confidence: 0.82 })
+            // État sélectionné explicitement par l'utilisateur (mode manuel)
+            setMlPrediction({ state: selectedState, confidence: 0.9 })
           }
           setPhase(PHASES.PRE_SESSION)
         }}
@@ -845,11 +1064,18 @@ export default function FeedbackSession() {
         <ProtocolBar />
         {isDemo ? (
           <p className="text-sm px-4 py-2 rounded-xl bg-nc-accent/10 border border-nc-accent/25 text-nc-accent font-medium">
-            Mode sans EEG — état issu du questionnaire, classification simulée
+            Mode sans EEG — état issu du questionnaire
+          </p>
+        ) : sessionMode === 'file' ? (
+          <p className="text-sm px-4 py-2 rounded-xl bg-purple-500/10 border border-purple-500/25 text-purple-400 font-medium">
+            Mode fichier EEG — état classifié :{' '}
+            <span className="font-bold capitalize">{initialEegState}</span>
+            {initialConf > 0 && ` (confiance ${Math.round(initialConf * 100)}%)`}
           </p>
         ) : (
           <p className="text-nc-muted">
-            État EEG : <span className="text-nc-accent font-semibold capitalize">{initialEegState}</span>
+            Mode EEG live — état :{' '}
+            <span className="text-nc-accent font-semibold capitalize">{initialEegState}</span>
           </p>
         )}
         <p className="text-sm text-nc-muted">Préparation de la session…</p>
@@ -933,23 +1159,18 @@ export default function FeedbackSession() {
         <FeedbackReport
           report={sessionReport}
           metrics={sessionMetrics}
-          onClose={() => navigate('/dashboard')}
+          sessionId={sessionId}
+          onFinalized={() => navigate('/dashboard')}
         />
 
-        {/* Navigation post-séance */}
-        <div className="flex gap-3 justify-end pt-1">
+        {/* Lien secondaire médias recommandés */}
+        <div className="flex justify-start pt-1">
           <button
             onClick={() => navigate('/media-dashboard')}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border border-purple-500/30 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 transition-colors"
           >
             <Music className="w-4 h-4" />
             Médias recommandés
-          </button>
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="btn-primary px-4 py-2 rounded-xl text-sm font-semibold"
-          >
-            Tableau de bord
           </button>
         </div>
       </div>
@@ -971,6 +1192,33 @@ export default function FeedbackSession() {
           className="btn-primary px-8 py-3 rounded-xl text-sm font-semibold"
         >
           Continuer vers l'évaluation →
+        </button>
+      </div>
+    )
+  }
+
+  // ── Respiration pré-bloc (toutes modes) ───────────────────────────────────
+  if (phase === PHASES.FEEDBACK_BLOCK && !blockBreathingDone) {
+    const blockLabel = blockIndex < 2 ? 'Découverte' : blockIndex < 4 ? 'Apprentissage' : 'Consolidation'
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-12 text-center space-y-8 animate-fade-in">
+        <ProtocolBar />
+        <div className="space-y-2">
+          <h1 className="text-xl font-bold text-nc-text">
+            Bloc {blockIndex + 1}/{TOTAL_BLOCKS} · {blockLabel}
+          </h1>
+          <p className="text-sm text-nc-muted">
+            Prenez un moment pour vous centrer avant de commencer le feedback.
+          </p>
+        </div>
+        <div className="card p-6">
+          <BreathingGuide active />
+        </div>
+        <button
+          onClick={() => setBlockBreathingDone(true)}
+          className="btn-primary px-8 py-3 rounded-xl text-sm font-semibold flex items-center gap-2 mx-auto"
+        >
+          Commencer le feedback <ChevronRight className="w-4 h-4" />
         </button>
       </div>
     )
@@ -1035,31 +1283,67 @@ export default function FeedbackSession() {
       {/* ── CONTENU PRINCIPAL ── */}
       <div className="grid lg:grid-cols-4 gap-4">
 
-        {/* ── PANNEAU GAUCHE : mini EEG + guide IA + stats + adaptation ── */}
+        {/* ── PANNEAU GAUCHE : mini EEG (live seulement) + guide IA + stats ── */}
         <div className="lg:col-span-1 space-y-4">
-          <div className="card p-4 space-y-3">
-            <p className="text-xs font-semibold text-nc-muted uppercase tracking-wide">Signal EEG</p>
-            <MiniEEGOscilloscope
-              wsData={eegFrame}
-              eegState={eegState}
-              mlPrediction={mlPrediction}
-              features={epochFrame?.features}
-            />
-          </div>
+          {/* Oscilloscope EEG — uniquement en mode live (casque physique) */}
+          {sessionMode === 'live' && (
+            <div className="card p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-semibold text-nc-muted uppercase tracking-wide">Signal EEG</p>
+                {electrodeOff && (
+                  <span className="text-[9px] font-semibold text-red-400 px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/20">
+                    ⚠ Électrode déconnectée
+                  </span>
+                )}
+              </div>
+              <MiniEEGOscilloscope
+                wsData={eegFrame}
+                eegState={eegState}
+                mlPrediction={mlPrediction}
+                features={epochFrame?.features}
+                compact
+              />
+            </div>
+          )}
 
-          {/* Guide IA d'utilisation */}
-          <AIGuideCard eegState={eegState} mediaType={currentMedia?.type} blockIndex={blockIndex} />
+          {/* Résumé état pour modes file / manual */}
+          {sessionMode !== 'live' && mlPrediction && (
+            <div className="card p-4 space-y-2">
+              <p className="text-xs font-semibold text-nc-muted uppercase tracking-wide">État cognitif</p>
+              <div className={`text-sm font-bold capitalize ${
+                eegState === 'stress' ? 'text-red-400' :
+                eegState === 'concentration' ? 'text-emerald-400' : 'text-blue-400'
+              }`}>
+                {eegState === 'stress' ? '😟 Stress' :
+                 eegState === 'concentration' ? '🎯 Concentration' : '😌 Neutre'}
+              </div>
+              <p className="text-[10px] text-nc-muted">
+                {sessionMode === 'file'
+                  ? `Fichier EEG classifié — confiance ${Math.round((mlPrediction.confidence ?? 0) * 100)}%`
+                  : 'Mode manuel — état déclaré'}
+              </p>
+            </div>
+          )}
 
-          {/* Guide Neuroscience détaillé */}
-          <MediaNeuroscienceGuide
-            mediaType={currentMedia?.type}
+          {/* Guide IA adaptatif — basé sur les vraies features du média */}
+          <AdaptiveGuideCard
             eegState={eegState}
-            mediaCategory={currentMedia?.category}
-            eegBands={epochFrame?.features}
+            currentMedia={currentMedia}
+            blockIndex={blockIndex}
           />
 
-          {/* Features clés */}
-          {epochFrame?.features && (
+          {/* Guide Neuroscience détaillé */}
+          {currentMedia && (
+            <MediaNeuroscienceGuide
+              mediaType={currentMedia.type}
+              eegState={eegState}
+              mediaCategory={currentMedia.category}
+              eegBands={epochFrame?.features}
+            />
+          )}
+
+          {/* Features EEG temps réel — live uniquement */}
+          {sessionMode === 'live' && epochFrame?.features && (
             <div className="card p-4 space-y-2 text-xs">
               <p className="font-semibold text-nc-muted uppercase tracking-wide text-[10px]">Features EEG</p>
               {[
@@ -1077,11 +1361,11 @@ export default function FeedbackSession() {
             </div>
           )}
 
-          {/* Métriques adaptation */}
+          {/* Métriques adaptation — seuil alpha seulement si live EEG */}
           <div className="card p-4 space-y-3 text-xs">
             <p className="font-semibold text-nc-muted uppercase tracking-wide text-[10px]">Adaptation protocole</p>
             <div className="space-y-2">
-              {thresholdDisplay !== null && (
+              {sessionMode === 'live' && thresholdDisplay !== null && (
                 <div className="flex justify-between items-center">
                   <span className="text-nc-muted flex items-center gap-1">
                     <Target className="w-3 h-3" /> Seuil alpha
@@ -1123,14 +1407,6 @@ export default function FeedbackSession() {
 
         {/* ── ZONE PRINCIPALE ── */}
         <div className="lg:col-span-3 space-y-4">
-
-          {/* Breathing / Focus guide */}
-          {(showBreath || showFocus) && (
-            <div className="card p-4">
-              {showBreath && <BreathingGuide active />}
-              {showFocus  && <FocusPoint active />}
-            </div>
-          )}
 
           {/* Zone média */}
           <div className="card p-4 space-y-3">

@@ -48,8 +48,8 @@ STEP_SAMPLES  = 250    # overlap 75 %
 # Mots-clés colonne signal (ordre de priorité)
 _SIGNAL_KEYWORDS = ["fp2", "fp1", "raw", "eeg", "uv", "voltage",
                     "signal", "value", "amplitude", "data", "mv", "ch"]
-# Mots-clés colonne temps
-_TIME_KEYWORDS   = ["time", "timestamp", "t", "second", "sec", "ms"]
+# Mots-clés colonne temps (whole-word match to avoid "t" hitting "pkt_id", etc.)
+_TIME_KEYWORDS   = ["time", "timestamp", "second", "sec"]
 # Mots-clés colonne fs
 _FS_KEYWORDS     = ["fs", "freq", "sampling", "rate", "hz", "srate"]
 # Canaux EDF préférés
@@ -261,7 +261,7 @@ def _detect_fs(arr: np.ndarray, header_cols: list, has_header: bool,
                 except Exception:
                     pass
 
-    # 2. Colonne temps → dt
+    # 2. Colonne temps → dt (auto-detect unit: s / ms / µs)
     if has_header:
         for i, col in enumerate(header_cols):
             if any(kw in str(col) for kw in _TIME_KEYWORDS):
@@ -271,11 +271,13 @@ def _detect_fs(arr: np.ndarray, header_cols: list, has_header: bool,
                     if len(times) > 2:
                         dt = np.median(np.diff(times))
                         if dt > 0:
-                            # Détecter l'unité : secondes ou millisecondes ?
-                            if "ms" in str(col) or dt > 0.5:
-                                fs_est = 1000.0 / dt  # ms → Hz
+                            col_s = str(col)
+                            if "us" in col_s or "µs" in col_s or dt > 500:
+                                fs_est = 1_000_000.0 / dt   # µs → Hz
+                            elif "ms" in col_s or dt > 0.5:
+                                fs_est = 1_000.0 / dt        # ms → Hz
                             else:
-                                fs_est = 1.0 / dt     # s → Hz
+                                fs_est = 1.0 / dt            # s → Hz
                             if 10 <= fs_est <= 10000:
                                 return int(round(fs_est))
                 except Exception:
@@ -341,6 +343,18 @@ def _adapt_signal(signal_uv: np.ndarray, fs: int) -> tuple:
         )
 
     return signal_uv, warnings
+
+
+def _sanitize(obj):
+    """Recursively replace NaN/Inf floats with None so JSON serialization never fails."""
+    import math
+    if isinstance(obj, float):
+        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize(v) for v in obj]
+    return obj
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -443,6 +457,7 @@ def process_signal(signal_uv: np.ndarray, fs: int = TARGET_FS) -> dict:
     summary = _compute_summary(epochs_result)
     summary["adapt_warnings"] = adapt_warnings
 
+<<<<<<< Updated upstream
     rejection_rate = round((n_total - n_accepted) / max(n_total, 1) * 100, 1)
     signal_quality = (
         "bonne"    if rejection_rate < 20 else
@@ -451,6 +466,9 @@ def process_signal(signal_uv: np.ndarray, fs: int = TARGET_FS) -> dict:
     )
 
     return {
+=======
+    return _sanitize({
+>>>>>>> Stashed changes
         "n_samples":         n_samples,
         "duration_s":        round(n_samples / fs, 1),
         "fs":                fs,
@@ -461,7 +479,7 @@ def process_signal(signal_uv: np.ndarray, fs: int = TARGET_FS) -> dict:
         "rejection_rate":    rejection_rate,
         "epochs":            epochs_result,
         "summary":           summary,
-    }
+    })
 
 
 # ═════════════════════════════════════════════════════════════════════════════

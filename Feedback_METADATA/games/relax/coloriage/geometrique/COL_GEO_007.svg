@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+<rect width="400" height="400" fill="#FAFAF5"/>
+<polygon points="200.00,15.00 375.95,142.83 308.74,349.67 91.26,349.67 24.05,142.83" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<polygon points="298.85,63.94 359.95,251.97 200.00,368.18 40.05,251.97 101.15,63.94" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<polygon points="343.96,153.23 288.97,322.46 111.03,322.46 56.04,153.23 200.00,48.64" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<polygon points="327.96,241.58 200.00,334.55 72.04,241.58 120.92,91.15 279.08,91.15" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<polygon points="269.20,295.24 130.80,295.24 88.03,163.62 200.00,82.27 311.97,163.62" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<polygon points="200.00,300.91 104.03,231.18 140.69,118.36 259.31,118.36 295.97,231.18" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<polygon points="150.57,268.03 120.02,174.01 200.00,115.91 279.98,174.01 249.43,268.03" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<polygon points="136.02,220.79 160.46,145.58 239.54,145.58 263.98,220.79 200.00,267.27" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<polygon points="152.01,184.41 200.00,149.55 247.99,184.41 229.66,240.82 170.34,240.82" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<polygon points="180.23,172.79 219.77,172.79 231.99,210.39 200.00,233.64 168.01,210.39" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="0.8" stroke-linejoin="round"/>
+<line x1="200.0" y1="180.0" x2="200.0" y2="10.0" stroke="#2a2a3a" stroke-width="0.8"/>
+<line x1="211.8" y1="183.8" x2="311.7" y2="46.3" stroke="#2a2a3a" stroke-width="0.8"/>
+<line x1="219.0" y1="193.8" x2="380.7" y2="141.3" stroke="#2a2a3a" stroke-width="0.8"/>
+<line x1="219.0" y1="206.2" x2="380.7" y2="258.7" stroke="#2a2a3a" stroke-width="0.8"/>
+<line x1="211.8" y1="216.2" x2="311.7" y2="353.7" stroke="#2a2a3a" stroke-width="0.8"/>
+<line x1="200.0" y1="220.0" x2="200.0" y2="390.0" stroke="#2a2a3a" stroke-width="0.8"/>
+<line x1="188.2" y1="216.2" x2="88.3" y2="353.7" stroke="#2a2a3a" stroke-width="0.8"/>
+<line x1="181.0" y1="206.2" x2="19.3" y2="258.7" stroke="#2a2a3a" stroke-width="0.8"/>
+<line x1="181.0" y1="193.8" x2="19.3" y2="141.3" stroke="#2a2a3a" stroke-width="0.8"/>
+<line x1="188.2" y1="183.8" x2="88.3" y2="46.3" stroke="#2a2a3a" stroke-width="0.8"/>
+</svg>

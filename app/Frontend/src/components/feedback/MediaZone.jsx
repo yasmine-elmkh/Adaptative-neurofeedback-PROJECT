@@ -1,19 +1,21 @@
 import { useState, useEffect, useRef } from 'react'
-import AudioFeedback   from './AudioFeedback'
-import ImageFeedback   from './ImageFeedback'
-import VideoFeedback   from './VideoFeedback'
-import GameFeedback    from './GameFeedback'
+import AudioFeedback    from './AudioFeedback'
+import ImageFeedback    from './ImageFeedback'
+import VideoFeedback    from './VideoFeedback'
+import GameFeedback     from './GameFeedback'
+import IllusionFeedback from './IllusionFeedback'
 import { SkipForward, Sparkles } from 'lucide-react'
 import { feedback as fbApi } from '../../utils/api'
 
 const MIN_SKIP_DELAY = {
-  audio: 30,
-  image: 10,
-  video: 20,
-  game:  60,
+  audio:    30,
+  image:    10,
+  video:    20,
+  game:     60,
+  illusion: 25,
 }
 
-const TYPE_ICON = { audio: '🎵', image: '🖼️', video: '🎬', game: '🎮' }
+const TYPE_ICON = { audio: '🎵', image: '🖼️', video: '🎬', game: '🎮', illusion: '🌀' }
 
 export default function MediaZone({ media, eegState = 'neutral', sessionId, eegFeatures, onSkip, onMediaEnd, onGameWin }) {
   const [elapsed,   setElapsed]   = useState(0)
@@ -104,6 +106,7 @@ export default function MediaZone({ media, eegState = 'neutral', sessionId, eegF
           <ImageFeedback
             src={media.url_cloudinary || media.url}
             initialPreset={media.preset ?? 'Naturel'}
+            eegState={eegState}
           />
         )}
         {media.type === 'video' && (
@@ -115,6 +118,14 @@ export default function MediaZone({ media, eegState = 'neutral', sessionId, eegF
               game={media}
               eegState={eegState}
               onWin={onGameWin ?? onMediaEnd}
+            />
+          </div>
+        )}
+        {media.type === 'illusion' && (
+          <div className="p-4">
+            <IllusionFeedback
+              eegState={eegState}
+              onEnd={onMediaEnd}
             />
           </div>
         )}

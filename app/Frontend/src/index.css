@@ -119,3 +119,8 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+
+@keyframes scanline {
+  0%   { top: 0%; }
+  100% { top: 100%; }
+}

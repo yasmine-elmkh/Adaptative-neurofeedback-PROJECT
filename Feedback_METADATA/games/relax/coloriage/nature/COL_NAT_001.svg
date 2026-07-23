@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+<rect width="400" height="400" fill="#FAFAF5"/>
+<ellipse cx="275.0" cy="200.0" rx="30" ry="55" transform="rotate(0.0 275.0 200.0)" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="1.2"/>
+<ellipse cx="253.0" cy="253.0" rx="30" ry="55" transform="rotate(45.0 253.0 253.0)" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="1.2"/>
+<ellipse cx="200.0" cy="275.0" rx="30" ry="55" transform="rotate(90.0 200.0 275.0)" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="1.2"/>
+<ellipse cx="147.0" cy="253.0" rx="30" ry="55" transform="rotate(135.0 147.0 253.0)" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="1.2"/>
+<ellipse cx="125.0" cy="200.0" rx="30" ry="55" transform="rotate(180.0 125.0 200.0)" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="1.2"/>
+<ellipse cx="147.0" cy="147.0" rx="30" ry="55" transform="rotate(225.0 147.0 147.0)" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="1.2"/>
+<ellipse cx="200.0" cy="125.0" rx="30" ry="55" transform="rotate(270.0 200.0 125.0)" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="1.2"/>
+<ellipse cx="253.0" cy="147.0" rx="30" ry="55" transform="rotate(315.0 253.0 147.0)" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="1.2"/>
+<circle cx="200" cy="200" r="28" fill="#FAFAF5" stroke="#2a2a3a" stroke-width="1.5"/>
+</svg>

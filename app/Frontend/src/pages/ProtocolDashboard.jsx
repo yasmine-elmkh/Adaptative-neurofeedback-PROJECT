@@ -16,11 +16,13 @@ const PALIER_DESC   = {
 }
 
 const STATUS_STYLE = {
-  completed:   { bg: 'bg-emerald-500/15', border: 'border-emerald-500/30', text: 'text-emerald-400' },
-  in_progress: { bg: 'bg-yellow-500/10',  border: 'border-yellow-500/25',  text: 'text-yellow-400'  },
-  scheduled:   { bg: 'bg-blue-500/10',    border: 'border-blue-500/20',    text: 'text-blue-400'    },
-  upcoming:    { bg: 'bg-nc-surface2',    border: 'border-nc-border',      text: 'text-nc-muted'    },
-  missed:      { bg: 'bg-red-500/10',     border: 'border-red-500/20',     text: 'text-red-400'     },
+  completed:          { bg: 'bg-emerald-500/15', border: 'border-emerald-500/30', text: 'text-emerald-400' },
+  in_progress:        { bg: 'bg-yellow-500/10',  border: 'border-yellow-500/25',  text: 'text-yellow-400'  },
+  running:            { bg: 'bg-yellow-500/10',  border: 'border-yellow-500/25',  text: 'text-yellow-400'  },
+  pending_validation: { bg: 'bg-orange-500/10',  border: 'border-orange-500/25',  text: 'text-orange-400'  },
+  scheduled:          { bg: 'bg-blue-500/10',    border: 'border-blue-500/20',    text: 'text-blue-400'    },
+  upcoming:           { bg: 'bg-nc-surface2',    border: 'border-nc-border',      text: 'text-nc-muted'    },
+  missed:             { bg: 'bg-red-500/10',     border: 'border-red-500/20',     text: 'text-red-400'     },
 }
 
 function SessionMini({ session, nextNum, s1Done, onClick }) {

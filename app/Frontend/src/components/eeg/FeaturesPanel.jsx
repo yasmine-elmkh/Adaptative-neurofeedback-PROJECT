@@ -248,25 +248,6 @@ const LEVEL_BG    = {
   mid:  'rgba(245,166,35,.08)', warn: 'rgba(255,77,109,.08)',
 }
 
-// ── Synthèse état cérébral ───────────────────────────────────────────────────
-function getBrainState(f) {
-  if (!f || typeof f.rel_alpha !== 'number') return null
-  const alpha  = f.rel_alpha  ?? 0
-  const beta   = f.rel_beta   ?? 0
-  const theta  = f.rel_theta  ?? 0
-  const stress = f.stress_idx ?? 0
-  const engage = f.engagement ?? 0
-
-  if (stress > 2.5 || (beta > 0.4 && alpha < 0.18))
-    return { state: 'STRESS',        color: '#ff4d6d', icon: '😰', desc: 'Beta élevé, alpha supprimé — cerveau en alerte ou sous pression' }
-  if (alpha > 0.32 && stress < 1.5)
-    return { state: 'RELAXATION',    color: '#00e5b0', icon: '🧘', desc: 'Alpha dominant — état idéal pour la récupération et la réceptivité' }
-  if (engage > 1.5 && beta > 0.25 && alpha > 0.15)
-    return { state: 'CONCENTRATION', color: '#4da6ff', icon: '🎯', desc: 'Engagement élevé — cerveau actif et focalisé' }
-  if (theta > 0.30 && engage < 0.7)
-    return { state: 'SOMNOLENCE',    color: '#f5a623', icon: '😴', desc: 'Theta élevé, engagement bas — tendance à la rêverie ou fatigue' }
-  return { state: 'NEUTRE',          color: '#9A8BAE', icon: '😌', desc: 'État équilibré sans dominance marquée' }
-}
 
 // ── Barre d'interprétation ───────────────────────────────────────────────────
 function GuideStat({ cfg, value }) {
@@ -361,7 +342,6 @@ export default function FeaturesPanel({ features: f = {}, epochIdx }) {
   const { effectiveTheme } = useTheme()
   const T = effectiveTheme === 'dark' ? T_DARK : T_LIGHT
   const [viewMode, setViewMode] = useState('guide')
-  const brainState = getBrainState(f)
 
   return (
     <PanelThemeCtx.Provider value={T}>
@@ -393,23 +373,6 @@ export default function FeaturesPanel({ features: f = {}, epochIdx }) {
             ════════════════════════════════════ */}
         {viewMode === 'guide' && (
           <>
-            {/* Synthèse état cérébral */}
-            {brainState && (
-              <div style={{ display:'flex', alignItems:'center', gap:12, padding:'14px 18px',
-                            borderRadius:14, background:`${brainState.color}0d`, border:`1px solid ${brainState.color}30` }}>
-                <span style={{ fontSize:28 }}>{brainState.icon}</span>
-                <div>
-                  <div style={{ fontSize:9, color:T.brainLabelClr, letterSpacing:1.5, textTransform:'uppercase', marginBottom:3 }}>
-                    État cérébral estimé
-                  </div>
-                  <div style={{ fontSize:16, fontWeight:800, color:brainState.color, letterSpacing:.5 }}>
-                    {brainState.state}
-                  </div>
-                  <div style={{ fontSize:11, color:T.brainDescClr, marginTop:2, lineHeight:1.5 }}>{brainState.desc}</div>
-                </div>
-              </div>
-            )}
-
             <SectionGuide title="Rythmes cérébraux" icon="🌊"
               desc="La puissance relative de chaque bande de fréquence exprime l'état mental dominant.">
               <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))', gap:8 }}>

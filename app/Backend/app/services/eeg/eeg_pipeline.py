@@ -323,7 +323,9 @@ class EEGPipeline:
                 if len(self._contact_buf) >= 250:
                     import numpy as np
                     _var = float(np.var(self._contact_buf))
-                    _contact_ok = 0.5 < _var < 250_000
+                    # Seuil bas assoupli : 0.05 µV² (électrode sèche OK)
+                    # Seuil haut : 500 000 µV² (signal vraiment flottant)
+                    _contact_ok = 0.05 < _var < 500_000
                 if s.get("lo_plus", 1) == 0 and s.get("lo_minus", 1) == 0:
                     elec_ok = _contact_ok
 
@@ -400,6 +402,14 @@ class EEGPipeline:
                                       if k != "epoch_filtered"}
                         await self.ws_manager.broadcast(ws_payload)
                     elif etype == "epoch_rejected" and self.ws_manager:
+                        # Log raison rejet toutes les 10 époques rejetées
+                        if self.rt.epocher.n_rejected % 10 == 1:
+                            logger.warning(
+                                f"[DSP] Époque rejetée — raison={epoch_result.get('reason')} "
+                                f"total={epoch_result.get('total')} "
+                                f"rejected={epoch_result.get('rejected')} "
+                                f"elec_ok={elec_ok}"
+                            )
                         await self.ws_manager.broadcast(epoch_result)
 
     async def _poll_ap_status(self):

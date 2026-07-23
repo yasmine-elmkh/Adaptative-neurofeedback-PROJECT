@@ -63,6 +63,54 @@ def get_profile_categories(profile_type: str) -> list[str]:
 
 # ── Scoring d'un média ────────────────────────────────────────────────────────
 
+def _score_illusion(media: dict, eeg_state: str) -> float:
+    """
+    Scoring neurophysiologique pour les illusions optiques HTML internes.
+
+    Mécanismes :
+      - mouvement_percu       → focus / transition (contre-indiqué stress)
+      - ambiguite_figure_fond → focus (flexibilité cognitive)
+      - distorsion_geometrique→ focus soutenu
+      - couleur_complementaire→ transition / relax actif
+
+    Retourne un score [0, 1].
+    """
+    mecanisme = (media.get("mecanisme") or "").lower()
+    intensite = float(media.get("intensite_effet") or 3)
+    contre_stress = str(media.get("contre_indique_stress") or "False").lower() == "true"
+    target = (media.get("target_state") or "transition").lower()
+
+    if eeg_state == "stress":
+        if contre_stress or mecanisme == "mouvement_percu" and intensite >= 4:
+            return 0.0
+        if mecanisme == "couleur_complementaire":
+            return 0.70
+        if target == "transition" and intensite <= 2:
+            return 0.55
+        return 0.35
+
+    elif eeg_state == "focus":
+        if mecanisme in ("ambiguite_figure_fond", "distorsion_geometrique"):
+            score = 0.60 + min(intensite / 5.0, 1.0) * 0.30
+        elif mecanisme == "mouvement_percu":
+            score = 0.50 + min(intensite / 5.0, 1.0) * 0.20
+        else:
+            score = 0.40
+        return min(score, 1.0)
+
+    else:  # relax / transition / neutral
+        if mecanisme in ("mouvement_percu", "couleur_complementaire"):
+            score = 0.65
+        elif mecanisme == "ambiguite_figure_fond":
+            score = 0.45
+        else:
+            score = 0.40
+        # Bonus si intensité faible (moins d'arousal)
+        if intensite <= 2:
+            score += 0.15
+        return min(score, 1.0)
+
+
 def score_media(
     media: dict,
     profile_type: str,
@@ -79,7 +127,14 @@ def score_media(
     - profile_weight : 1.2 si catégorie alignée au profil, 0.8 sinon
     - state_weight   : boost si média adapté à l'état EEG courant
     - liked_bonus    : 1.3 si le patient a déjà liké ce média
+    - Illusions internes : scoring neurophysiologique direct (pas de Thompson)
     """
+    # Illusions HTML internes → scoring neurophysiologique direct
+    if media.get("type") == "illusion" or media.get("source") == "internal_html":
+        base = _score_illusion(media, eeg_state)
+        liked_bonus = 1.2 if str(media.get("id", "")) in liked_media_ids else 1.0
+        return min(1.0, base * liked_bonus)
+
     duration = media.get("duration_seconds")
     max_dur = PALIER_MAX_DURATION.get(palier)
     if max_dur and duration and duration > max_dur:

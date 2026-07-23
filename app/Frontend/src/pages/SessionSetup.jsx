@@ -31,7 +31,7 @@ const MODES = [
     border:'border-nc-accent/25',
     title: 'Sans EEG — saisie manuelle',
     desc:  'Pas de casque requis. Vous décrivez vous-même votre état (stress, concentration…) via le questionnaire intégré.',
-    path:  '/neurofeedback?mode=manual',
+    path:  '/feedback',
   },
 ]
 
@@ -46,13 +46,7 @@ export default function SessionSetup() {
   }, [])
 
   const handleSelect = (mode) => {
-    if (mode.key === 'manual') {
-      navigate('/feedback/session', {
-        state: { mode: 'manual', eeg_state: 'neutral', classification_confidence: 0, features_snapshot: null },
-      })
-    } else {
-      navigate(mode.path)
-    }
+    navigate(mode.path)
   }
 
   return (

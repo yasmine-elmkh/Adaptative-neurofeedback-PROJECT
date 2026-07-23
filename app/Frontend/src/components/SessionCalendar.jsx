@@ -5,11 +5,12 @@ import { Star, CheckCircle2, Clock, XCircle, Calendar, Lock, AlertCircle, ArrowR
 
 /* ── Couleurs par statut ── */
 const STATUS_STYLE = {
-  completed:  { bg: 'bg-emerald-500/15', border: 'border-emerald-500/30', text: 'text-emerald-400', label: 'Complétée'   },
-  scheduled:  { bg: 'bg-blue-500/15',    border: 'border-blue-500/30',    text: 'text-blue-400',    label: 'Planifiée'   },
-  upcoming:   { bg: 'bg-nc-surface2',    border: 'border-nc-border',      text: 'text-nc-muted',    label: 'À venir'     },
-  missed:     { bg: 'bg-red-500/10',     border: 'border-red-500/25',     text: 'text-red-400',     label: 'Manquée'     },
-  running:    { bg: 'bg-yellow-500/10',  border: 'border-yellow-500/25',  text: 'text-yellow-400',  label: 'En cours'    },
+  completed:           { bg: 'bg-emerald-500/15', border: 'border-emerald-500/30', text: 'text-emerald-400', label: 'Complétée'        },
+  scheduled:           { bg: 'bg-blue-500/15',    border: 'border-blue-500/30',    text: 'text-blue-400',    label: 'Planifiée'        },
+  upcoming:            { bg: 'bg-nc-surface2',    border: 'border-nc-border',      text: 'text-nc-muted',    label: 'À venir'          },
+  missed:              { bg: 'bg-red-500/10',     border: 'border-red-500/25',     text: 'text-red-400',     label: 'Manquée'          },
+  running:             { bg: 'bg-yellow-500/10',  border: 'border-yellow-500/25',  text: 'text-yellow-400',  label: 'En cours'         },
+  pending_validation:  { bg: 'bg-orange-500/10',  border: 'border-orange-500/25',  text: 'text-orange-400',  label: 'En validation'    },
 }
 
 /* ── Phases ── */

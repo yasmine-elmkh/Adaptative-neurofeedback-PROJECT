@@ -17,14 +17,26 @@ const STEPS = [
 ]
 
 /* ── Stepper header ────────────────────────────────────────── */
-function StepHeader({ currentStep }) {
+function StepHeader({ currentStep, mode }) {
+  // File/manual mode: guide, breathing, calibration are hardware-only steps — remove them
+  const noHardware = mode === 'file' || mode === 'manual'
+  const steps = noHardware
+    ? STEPS.filter(s => s.id !== 'guide' && s.id !== 'breathing' && s.id !== 'calibration')
+    : STEPS
+
+  // Map raw step index to visible index for no-hardware modes
+  // raw: 1=fixation, 4+=session  →  visible: 0, 1
+  const visibleStep = noHardware
+    ? currentStep <= 1 ? 0 : 1
+    : currentStep
+
   return (
     <div className="flex items-center justify-center gap-2 py-6">
-      {STEPS.map((s, i) => {
+      {steps.map((s, i) => {
         const Icon    = s.icon
-        const done    = i < currentStep
-        const active  = i === currentStep
-        const pending = i > currentStep
+        const done    = i < visibleStep
+        const active  = i === visibleStep
+        const pending = i > visibleStep
         return (
           <div key={s.id} className="flex items-center gap-2">
             <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold
@@ -35,7 +47,7 @@ function StepHeader({ currentStep }) {
               <Icon className="w-3 h-3" />
               {s.label}
             </div>
-            {i < STEPS.length - 1 && (
+            {i < steps.length - 1 && (
               <ChevronRight className={`w-3 h-3 ${done ? 'text-emerald-400/50' : 'text-nc-muted/20'}`} />
             )}
           </div>
@@ -72,10 +84,15 @@ export default function NeurofeedbackSession() {
   const mode    = searchParams.get('mode') || 'live'
   const eegData = location.state || {}
 
-  // Manual mode skips step 0 (ElectrodeGuide — only needed with a physical headset).
-  const [step, setStep] = useState(mode === 'manual' ? 1 : 0)
+  // Manual and file modes skip step 0 (ElectrodeGuide — only needed with a physical headset).
+  const [step, setStep] = useState(mode === 'manual' || mode === 'file' ? 1 : 0)
 
-  const advance = () => setStep(s => s + 1)
+  const advance = () => setStep(s => {
+    const next = s + 1
+    // File/manual: no breathing (2) and no calibration (3) — jump straight to session (4)
+    if ((mode === 'file' || mode === 'manual') && next >= 2) return 4
+    return next
+  })
 
   // When we reach step 4 (session), navigate to FeedbackSession
   useEffect(() => {
@@ -94,7 +111,7 @@ export default function NeurofeedbackSession() {
   return (
     <div className="max-w-3xl mx-auto">
       {/* Show header for non-full-screen steps (Fixation/Breathing are fixed inset-0) */}
-      {step !== 1 && step !== 2 && <StepHeader currentStep={step} />}
+      {step !== 1 && step !== 2 && <StepHeader currentStep={step} mode={mode} />}
 
       {step === 0 && (
         <ElectrodeGuide

@@ -14,13 +14,12 @@ import { useEEGWebSocket } from '../hooks/useEEGWebSocket'
 import { useRecording }    from '../hooks/useRecording'
 import { eeg as eegApi } from '../utils/api'
 
-/* ── Métadonnées états cognitifs ──────────────────────────────────────────────── */
+/* ── Métadonnées état cognitif — LightGBM (seule source affichée) ──────────────── */
 const STATE_META = {
-  focused:       { label: 'Concentré',       color: 'text-emerald-400', bg: 'bg-emerald-500/15', dot: 'bg-emerald-400' },
-  relaxed:       { label: 'Détendu',         color: 'text-blue-400',    bg: 'bg-blue-500/15',    dot: 'bg-blue-400'    },
-  stressed:      { label: 'Stressé',         color: 'text-red-400',     bg: 'bg-red-500/15',     dot: 'bg-red-400'     },
-  neutral:       { label: 'Neutre',          color: 'text-nc-muted',    bg: 'bg-nc-surface2',    dot: 'bg-nc-muted'    },
-  invalid:       { label: 'Signal invalide', color: 'text-nc-muted/50', bg: 'bg-nc-surface2/50', dot: 'bg-nc-muted/40' },
+  concentration: { label: 'Concentration',   color: 'text-emerald-400', bg: 'bg-emerald-500/15', dot: 'bg-emerald-400' },
+  stress:        { label: 'Stress',          color: 'text-red-400',     bg: 'bg-red-500/15',     dot: 'bg-red-400'     },
+  uncertain:     { label: 'Incertain',       color: 'text-yellow-400',  bg: 'bg-yellow-500/15',  dot: 'bg-yellow-400'  },
+  neutral:       { label: 'En attente…',     color: 'text-nc-muted',    bg: 'bg-nc-surface2',    dot: 'bg-nc-muted'    },
 }
 
 /* ── Raisons de rejet (mapping court) ── */
@@ -294,7 +293,9 @@ export default function EEGLive({ embedded = false }) {
   /* ── Dérivés WebSocket ── */
   const esp32Connected = esp32Status?.connected ?? initFrame?.esp32_connected ?? false
   const wifiConfigured = initFrame?.wifi_configured ?? false
-  const cognitiveState = epochFrame?.state ?? 'neutral'
+  const cognitiveState = mlPrediction
+    ? (mlPrediction.uncertain ? 'uncertain' : mlPrediction.state)
+    : 'neutral'
   const electrodeOk   = eegFrame?.electrode_ok ?? initFrame?.electrode_ok ?? false
   const cqeScore      = epochFrame?.cqe_score ?? 0
 
@@ -321,7 +322,8 @@ export default function EEGLive({ embedded = false }) {
     }, ...prev].slice(0, 80))
     setSessionStats(prev => {
       const states = { ...prev.states }
-      const st = epochFrame.state ?? 'neutral'
+      const mlp = epochFrame.ml_prediction
+      const st  = mlp ? (mlp.uncertain ? 'uncertain' : mlp.state) : 'neutral'
       states[st] = (states[st] ?? 0) + 1
       return { ...prev, n_accepted: prev.n_accepted + 1, states }
     })
@@ -381,9 +383,9 @@ export default function EEGLive({ embedded = false }) {
         n_epochs_accepted:  sessionStats.n_accepted,
         n_epochs_rejected:  sessionStats.n_rejected,
         dominant_state:     dominantEntry?.[0] ?? 'neutral',
-        concentration_pct:  Math.round(((sessionStats.states.focused ?? 0) / total) * 100),
-        stress_pct:         Math.round(((sessionStats.states.stressed ?? 0) / total) * 100),
-        uncertain_pct:      0,
+        concentration_pct:  Math.round(((sessionStats.states.concentration ?? 0) / total) * 100),
+        stress_pct:         Math.round(((sessionStats.states.stress ?? 0) / total) * 100),
+        uncertain_pct:      Math.round(((sessionStats.states.uncertain ?? 0) / total) * 100),
         mean_confidence:    mlPrediction?.confidence ?? 0,
         states_json:        sessionStats.states,
       })
@@ -555,7 +557,7 @@ export default function EEGLive({ embedded = false }) {
 
       {/* ══ Barre état cognitif ══════════════════════════════════════════════════ */}
       <div className={`card p-4 flex items-center gap-4 ${sm.bg}`}>
-        <span className={`w-3 h-3 rounded-full ${sm.dot} ${cognitiveState === 'focused' ? 'animate-pulse' : ''}`} />
+        <span className={`w-3 h-3 rounded-full ${sm.dot} ${cognitiveState === 'concentration' ? 'animate-pulse' : ''}`} />
         <div className="flex-1 min-w-0">
           <p className={`font-semibold text-sm ${sm.color}`}>{sm.label}</p>
           <p className="text-xs text-nc-muted truncate">
@@ -820,7 +822,7 @@ export default function EEGLive({ embedded = false }) {
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-nc-border bg-nc-surface2/40">
-                  {['#', 'Statut', 'État DSP', 'LightGBM', 'Conf.', 'Alpha', 'Beta', 'Theta', 'Artefact / Raison'].map(h => (
+                  {['#', 'Statut', 'LightGBM', 'Conf.', 'Alpha', 'Beta', 'Theta', 'Artefact / Raison'].map(h => (
                     <th key={h} className="px-3 py-2 text-start text-nc-muted font-semibold uppercase tracking-wide text-[10px]">{h}</th>
                   ))}
                 </tr>
@@ -829,7 +831,6 @@ export default function EEGLive({ embedded = false }) {
                 {epochHistory.map((ep, i) => {
                   const f   = ep.features ?? {}
                   const ml  = ep.ml_prediction
-                  const stm = STATE_META[ep.state] ?? STATE_META.neutral
                   const mlState = ml ? (ml.uncertain ? 'uncertain' : ml.state) : null
                   const ML_STYLES = {
                     concentration: { label: '🎯 Concentr.', color: 'text-emerald-400' },
@@ -846,11 +847,6 @@ export default function EEGLive({ embedded = false }) {
                         {ep._accepted
                           ? <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">✓ OK</span>
                           : <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-500/10 text-red-400 border border-red-500/20">✕ Rejeté</span>}
-                      </td>
-                      <td className="px-3 py-2">
-                        {ep._accepted
-                          ? <span className={`text-[10px] font-semibold ${stm.color}`}>{stm.label}</span>
-                          : <span className="text-nc-muted text-[10px]">—</span>}
                       </td>
                       <td className="px-3 py-2">
                         {mlMeta
@@ -918,7 +914,7 @@ export default function EEGLive({ embedded = false }) {
           {/* Distribution états cognitifs */}
           {Object.keys(sessionStats.states).length > 0 && (
             <div className="card p-5">
-              <h3 className="text-sm font-semibold text-nc-text mb-4">Distribution des états (Z-score DSP)</h3>
+              <h3 className="text-sm font-semibold text-nc-text mb-4">Distribution des états (LightGBM)</h3>
               <div className="space-y-3">
                 {Object.entries(sessionStats.states)
                   .sort(([, a], [, b]) => b - a)

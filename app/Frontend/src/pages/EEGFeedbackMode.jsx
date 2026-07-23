@@ -169,7 +169,6 @@ function EEGContextPanel({ eegState, confidence, features, recommendation }) {
     ['Theta',      `${((features.rel_theta  ?? features.theta_power ?? 0) * 100).toFixed(1)}%`],
     ['TBR',        (features.theta_beta ?? features.tbr ?? 0).toFixed(2)],
     ['EI',         (features.engagement ?? features.ei  ?? 0).toFixed(2)],
-    ['Higuchi FD', (features.higuchi_fd ?? 0).toFixed(3)],
   ] : []
 
   return (
@@ -207,7 +206,7 @@ function EEGContextPanel({ eegState, confidence, features, recommendation }) {
               <span className="text-xs text-nc-muted w-20 shrink-0">{k}</span>
               <div className="flex-1 h-1 rounded-full bg-nc-surface2 overflow-hidden">
                 <div className="h-full rounded-full bg-nc-accent/50"
-                  style={{ width: `${Math.min(parseFloat(v) * (k === 'TBR' || k === 'EI' || k === 'Higuchi FD' ? 33 : 1), 100)}%` }} />
+                  style={{ width: `${Math.min(parseFloat(v) * (k === 'TBR' || k === 'EI' ? 33 : 1), 100)}%` }} />
               </div>
               <span className="text-xs font-mono font-semibold text-nc-text w-14 text-right">{v}</span>
             </div>
@@ -319,12 +318,18 @@ export default function EEGFeedbackMode() {
 
   const {
     source       = 'live',
-    eegState     = 'neutral',
+    eegState: rawEegState = 'neutral',
     confidence   = 0,
     features     = null,
     fromProtocol = false,
     sessionN     = null,
   } = location.state ?? {}
+
+  // Normaliser l'état EEG vers les valeurs attendues par l'API backend (stress | focus | neutral)
+  const eegState = (rawEegState === 'focused' || rawEegState === 'concentration') ? 'focus'
+    : (rawEegState === 'stressed') ? 'stress'
+    : (rawEegState === 'relaxed')  ? 'neutral'
+    : rawEegState
 
   // ── Statut protocole (palier, phase, séance) ──
   const [protocolStatus, setProtocolStatus] = useState({ session_number: null, phase: 'phase1', palier: 2, completed: 0, remaining: 15 })
@@ -333,7 +338,10 @@ export default function EEGFeedbackMode() {
   }, [])
 
   const palier       = protocolStatus.palier ?? 2
-  const allowedTypes = PALIER_ALLOWED_TYPES[palier] ?? PALIER_ALLOWED_TYPES[2]
+  // Hors protocole : tous les types disponibles sans restriction de palier
+  const allowedTypes = fromProtocol
+    ? (PALIER_ALLOWED_TYPES[palier] ?? PALIER_ALLOWED_TYPES[2])
+    : ['breathing', 'audio', 'image', 'video', 'game']
 
   // ── Recommendation initiale (prend en compte le palier) ──
   const recommendation = recommendFeedback(eegState, features ?? {}, confidence, palier)
@@ -361,35 +369,49 @@ export default function EEGFeedbackMode() {
   const sessionStartRef = useRef(Date.now())
 
   // ── Phase calibration → session ──
+  // Calibration uniquement dans le flux protocole — accès libre passe directement en session
   const [sessionPhase, setSessionPhase] = useState('calibration')
   const enterSession = () => setSessionPhase('session')
 
   // ── Signal EEG temps réel (seulement si source === 'live') ──
   const liveEEG = useEEGWebSocket()
 
-  // ── Charger les illusions optiques HTML depuis Supabase ──
+  // ── Détection électrode déconnectée ──
+  const [electrodeOff, setElectrodeOff] = useState(false)
+  useEffect(() => {
+    if (liveEEG.rejectedFrame?.reason === 'electrode_off') setElectrodeOff(true)
+  }, [liveEEG.rejectedFrame])
+  useEffect(() => {
+    if (liveEEG.epochFrame?.features) setElectrodeOff(false)
+  }, [liveEEG.epochFrame])
+
+  // ── Charger les illusions optiques HTML internes (Feedback_METADATA/illusions/) ──
   useEffect(() => {
     if (feedbackType !== 'image') return
     setIllusionsLoading(true)
-    supabase
-      .from('medias')
-      .select('*')
-      .eq('content_format', 'html')
-      .limit(200)
-      .then(({ data, error }) => {
-        if (!error && data) setIllusions(data)
-        else setIllusions([])
+    fetch(`/api/media/illusions/internal?eeg_state=${encodeURIComponent(eegState)}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          // Ajouter l'URL backend pour chaque illusion
+          setIllusions(data.map(ill => ({
+            ...ill,
+            url: `/api/media/illusions/html/${encodeURIComponent(ill.filename)}`,
+          })))
+        } else {
+          setIllusions([])
+        }
       })
       .catch(() => setIllusions([]))
       .finally(() => setIllusionsLoading(false))
-  }, [feedbackType])
+  }, [feedbackType, eegState])
 
   // ── Chargement médias quand type change ──
   useEffect(() => {
     if (feedbackType === 'game' || feedbackType === 'breathing') return
     setMediasLoading(true)
     setSelectedMedia(null)
-    mediaApi.list(feedbackType, eegState)
+    mediaApi.list(feedbackType, fromProtocol ? eegState : null)
       .then(data => {
         const list = Array.isArray(data) ? data : (data.medias ?? data.items ?? [])
         setMedias(list)
@@ -453,7 +475,7 @@ export default function EEGFeedbackMode() {
       } else if (medias.length === 1) {
         // Un seul média → recharger la liste (nouvel appel API)
         setMediasLoading(true)
-        mediaApi.list(feedbackType, eegState)
+        mediaApi.list(feedbackType, fromProtocol ? eegState : null)
           .then(data => {
             const list = Array.isArray(data) ? data : (data.medias ?? data.items ?? [])
             setMedias(list)
@@ -499,14 +521,9 @@ export default function EEGFeedbackMode() {
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <p className="text-xs font-semibold text-nc-muted uppercase tracking-wide">
-              {feedbackType === 'image' ? 'Image' : feedbackType === 'video' ? 'Vidéo' : 'Audio'}
-            </p>
-            <span className="text-[10px] text-nc-muted/60 font-mono">
-              {displayIdx + 1} / {medias.length}
-            </span>
-          </div>
+          <p className="text-xs font-semibold text-nc-muted uppercase tracking-wide">
+            {feedbackType === 'image' ? 'Image' : feedbackType === 'video' ? 'Vidéo' : 'Audio'}
+          </p>
           <button
             onClick={handleRefreshMedia}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold
@@ -517,27 +534,12 @@ export default function EEGFeedbackMode() {
           </button>
         </div>
 
-        <div className="flex gap-1.5 flex-wrap max-h-24 overflow-y-auto pr-1">
-          {medias.map((m, i) => (
-            <button key={m.id ?? i}
-              onClick={() => setSelectedMedia(m)}
-              className={`px-2.5 py-1 rounded-lg text-[10px] font-medium border transition-all shrink-0
-                ${selectedMedia?.id === m.id
-                  ? 'bg-nc-accent/20 border-nc-accent text-nc-accent'
-                  : 'border-nc-border text-nc-muted hover:border-nc-accent/40 hover:text-nc-text'}`}
-              title={m.filename}
-            >
-              {(m.filename ?? `Média ${i + 1}`).replace(/\.[^.]+$/, '').slice(0, 22)}
-            </button>
-          ))}
-        </div>
-
         {selectedMedia && (
           <div className="card overflow-hidden">
-            {feedbackType === 'image' && <ImageFeedback src={selectedMedia.url} initialPreset="Naturel" />}
-            {feedbackType === 'video' && <VideoFeedback src={selectedMedia.url} />}
+            {feedbackType === 'image' && <ImageFeedback src={selectedMedia.url_cloudinary || selectedMedia.url} initialPreset="Naturel" />}
+            {feedbackType === 'video' && <VideoFeedback src={selectedMedia.url_cloudinary || selectedMedia.url} />}
             {feedbackType === 'audio' && (
-              <div className="p-6"><AudioFeedback src={selectedMedia.url} /></div>
+              <div className="p-6"><AudioFeedback src={selectedMedia.url_cloudinary || selectedMedia.url} /></div>
             )}
           </div>
         )}
@@ -711,9 +713,9 @@ export default function EEGFeedbackMode() {
                 </div>
               ) : illusions.length === 0 ? (
                 <div className="card flex flex-col items-center justify-center h-32 gap-2 text-nc-muted">
-                  <span className="text-2xl">🔌</span>
-                  <p className="text-xs">Aucune illusion optique disponible dans Supabase</p>
-                  <p className="text-[10px] text-nc-muted/60">Table medias · content_format = 'html'</p>
+                  <span className="text-2xl">🌀</span>
+                  <p className="text-xs">Aucune illusion disponible pour cet état EEG</p>
+                  <p className="text-[10px] text-nc-muted/60">Backend : /api/media/illusions/internal</p>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -728,19 +730,31 @@ export default function EEGFeedbackMode() {
                           ${selectedIllusion?.id === ill.id
                             ? 'bg-purple-500/20 border-purple-500/40 text-purple-400'
                             : 'border-nc-border text-nc-muted hover:border-purple-400/40 hover:text-nc-text'}`}
-                        title={ill.filename}
+                        title={ill.titre ?? ill.filename}
                       >
-                        🌀 {(ill.filename ?? `Illusion ${i + 1}`).replace(/\.[^.]+$/, '').slice(0, 22)}
+                        🌀 {(ill.titre ?? ill.filename ?? `Illusion ${i + 1}`).slice(0, 22)}
                       </button>
                     ))}
                   </div>
 
                   {selectedIllusion && (
                     <div className="card overflow-hidden space-y-2">
-                      <div className="px-3 pt-3 flex items-center justify-between">
-                        <p className="text-xs font-semibold text-purple-400 truncate">
-                          {selectedIllusion.filename?.replace(/\.[^.]+$/, '') ?? 'Illusion optique'}
-                        </p>
+                      <div className="px-3 pt-3 flex items-center gap-3 justify-between flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-xs font-semibold text-purple-400 truncate">
+                            {selectedIllusion.titre ?? selectedIllusion.filename?.replace(/\.[^.]+$/, '') ?? 'Illusion optique'}
+                          </p>
+                          {selectedIllusion.badge_eeg && (
+                            <span className="text-[9px] px-2 py-0.5 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300 font-semibold">
+                              ⚡ {selectedIllusion.badge_eeg}
+                            </span>
+                          )}
+                          {selectedIllusion.effet_cognitif && (
+                            <span className="text-[9px] px-2 py-0.5 rounded-full bg-nc-surface2 border border-nc-border text-nc-muted">
+                              {selectedIllusion.effet_cognitif.replace('_', ' ')}
+                            </span>
+                          )}
+                        </div>
                         <button
                           onClick={() => setSelectedIllusion(null)}
                           className="text-[10px] text-nc-muted hover:text-nc-text transition-colors"
@@ -749,8 +763,9 @@ export default function EEGFeedbackMode() {
                         </button>
                       </div>
                       <iframe
+                        key={selectedIllusion.filename}
                         src={selectedIllusion.url}
-                        title={selectedIllusion.filename}
+                        title={selectedIllusion.titre ?? selectedIllusion.filename}
                         className="w-full border-0"
                         style={{ height: 480 }}
                         sandbox="allow-scripts allow-same-origin"
@@ -821,7 +836,7 @@ export default function EEGFeedbackMode() {
         <div className="flex-1">
           <h1 className="text-xl font-bold text-nc-text">Feedback Adaptatif EEG</h1>
           <p className="text-xs text-nc-muted">
-            Source : {source === 'live' ? 'signal temps réel' : 'fichier hors-ligne'}
+            Source : {source === 'live' ? 'signal temps réel' : source === 'manual' ? 'saisie manuelle' : 'fichier hors-ligne'}
             {' · '}
             <span className={st.color}>{st.label}</span>
             {' · '}
@@ -839,19 +854,26 @@ export default function EEGFeedbackMode() {
         )}
       </div>
 
-      {/* ── Signal EEG temps réel (live uniquement) ── */}
-      {source === 'live' && (
-        <div className="card p-3 border border-emerald-500/20 bg-emerald-500/5">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wide">Signal EEG — Temps Réel</span>
+
+      {/* ── Badge mode manuel ── */}
+      {source === 'manual' && (
+        <div className="card p-3 flex items-center gap-3 border border-amber-500/20 bg-amber-500/5">
+          <Brain className="w-4 h-4 text-amber-400 shrink-0" />
+          <div className="flex-1">
+            <span className="text-[10px] font-semibold text-amber-400 uppercase tracking-wide">
+              Mode Exploration Manuelle
+            </span>
+            <span className="text-[10px] text-nc-muted ml-3">
+              État saisi manuellement · Aucun casque EEG requis · Les recommandations sont identiques au mode live
+            </span>
           </div>
-          <MiniEEGOscilloscope
-            wsData={liveEEG.eegFrame}
-            eegState={eegState}
-            mlPrediction={liveEEG.mlPrediction}
-            features={liveEEG.epochFrame?.features ?? features}
-          />
+          <button
+            onClick={() => navigate('/eeg-manual')}
+            className="text-[10px] text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded-lg
+                       hover:bg-amber-500/10 transition-colors shrink-0"
+          >
+            Changer d'état
+          </button>
         </div>
       )}
 
@@ -887,8 +909,7 @@ export default function EEGFeedbackMode() {
           <div className="card p-3 flex items-center gap-3 flex-wrap text-xs">
             {/* Progression */}
             <div className="flex items-center gap-2 shrink-0">
-              {sessionNum && <span className="font-bold text-nc-accent font-mono">S{sessionNum}/15</span>}
-              <div className="w-24 h-1.5 rounded-full bg-nc-surface2 overflow-hidden">
+<div className="w-24 h-1.5 rounded-full bg-nc-surface2 overflow-hidden">
                 <div className="h-full rounded-full bg-gradient-to-r from-purple-500 via-blue-500 to-emerald-500"
                      style={{ width: `${progress}%` }} />
               </div>
@@ -921,8 +942,66 @@ export default function EEGFeedbackMode() {
       {/* ── Layout deux colonnes ── */}
       <div className="grid lg:grid-cols-4 gap-4">
 
-        {/* ── Colonne gauche — contexte EEG ── */}
-        <div className="lg:col-span-1">
+        {/* ── Colonne gauche — carte EEG holo + contexte ── */}
+        <div className="lg:col-span-1 space-y-4">
+
+          {/* Carte holographique EEG live */}
+          {source === 'live' && (
+            <div className="relative overflow-hidden rounded-2xl border border-emerald-400/25
+                            bg-[#060e18] shadow-[0_0_32px_rgba(52,211,153,0.12),inset_0_0_24px_rgba(52,211,153,0.04)]">
+
+              {/* Scan lines */}
+              <div className="absolute inset-0 pointer-events-none"
+                style={{ background: 'repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(52,211,153,0.025) 3px,rgba(52,211,153,0.025) 4px)' }} />
+
+              {/* Grille holographique */}
+              <div className="absolute inset-0 pointer-events-none opacity-40"
+                style={{ background: 'linear-gradient(rgba(52,211,153,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(52,211,153,0.04) 1px,transparent 1px)', backgroundSize: '18px 18px' }} />
+
+              {/* Coins déco */}
+              <div className="absolute top-2.5 left-2.5 w-5 h-5 border-t-2 border-l-2 border-emerald-400/60" />
+              <div className="absolute top-2.5 right-2.5 w-5 h-5 border-t-2 border-r-2 border-emerald-400/60" />
+              <div className="absolute bottom-2.5 left-2.5 w-5 h-5 border-b-2 border-l-2 border-emerald-400/60" />
+              <div className="absolute bottom-2.5 right-2.5 w-5 h-5 border-b-2 border-r-2 border-emerald-400/60" />
+
+              {/* Ligne de balayage animée */}
+              <div className="absolute inset-x-0 h-px bg-gradient-to-r from-transparent via-emerald-400/40 to-transparent pointer-events-none animate-[scanline_3s_linear_infinite]"
+                style={{ animation: 'scanline 3s linear infinite' }} />
+
+              <div className="relative p-4 space-y-3">
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"
+                      style={{ boxShadow: '0 0 8px rgba(52,211,153,0.9)' }} />
+                    <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-[0.2em] font-mono">
+                      EEG Live
+                    </span>
+                  </div>
+                  <span className="text-[9px] font-mono text-emerald-400/50 tracking-wide">Fp2</span>
+                  {electrodeOff && (
+                    <span className="text-[9px] font-bold text-red-400 px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/30 animate-pulse">
+                      ⚠ Élec.
+                    </span>
+                  )}
+                </div>
+
+                {/* Oscilloscope holographique */}
+                <div className="rounded-xl overflow-hidden border border-emerald-400/15"
+                  style={{ boxShadow: 'inset 0 0 16px rgba(52,211,153,0.06)' }}>
+                  <MiniEEGOscilloscope
+                    wsData={liveEEG.eegFrame}
+                    eegState={eegState}
+                    mlPrediction={liveEEG.mlPrediction}
+                    features={liveEEG.epochFrame?.features ?? features}
+                    canvasHeight={130}
+                    hideLabel
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           <EEGContextPanel
             eegState={eegState}
             confidence={confidence}

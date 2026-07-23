@@ -88,10 +88,21 @@ class ContactQualityEstimator:
       3. Spectral Flatness Measure  (0-25 pts)
       4. Taux de dérive DC          (0-20 pts)
 
+    Détection déconnexion logicielle (firmware 4 colonnes sans bit LO) :
+      Une entrée flottante produit un ratio HF anormalement élevé ET
+      une variance qui dépasse le plafond EEG normal (> 1000 µV²).
+      Si ces deux conditions sont réunies ET lo_score == 0, le signal
+      est marqué disconnected_sw (score forcé à 0).
+
     Ref : Jayant & Noll 1984 (SFM), Liao et al. 2012
     """
 
     WINDOW_S = 2
+
+    # Seuils détection déconnexion logicielle
+    # Variance > 1000 µV² ET ratio HF > 0.35 → très probablement entrée flottante
+    _SW_DISC_VAR_UV2 = 1000.0
+    _SW_DISC_HF_THR  = 0.35
 
     def __init__(self, fs: int = FS):
         self.fs     = fs
@@ -99,6 +110,7 @@ class ContactQualityEstimator:
         self._score = 0
         self._label = "invalid"
         self._detail = {}
+        self._disconnected_sw = False
 
     def push_sample(self, uv: float):
         """Appeler à chaque échantillon brut (250 Hz)."""
@@ -122,6 +134,27 @@ class ContactQualityEstimator:
         s_var   = self._score_variance(epoch_ac)
         s_sfm   = self._score_sfm(epoch_ac)
         s_drift = self._score_drift(epoch_ac)
+
+        # Détection déconnexion logicielle (firmware sans bit LO)
+        # Entrée flottante : variance très élevée + ratio HF anormal
+        if lo_score == 0:
+            var_ac = float(np.var(epoch_ac))
+            hf_ratio = self._hf_ratio(epoch_ac)
+            self._disconnected_sw = (
+                var_ac > self._SW_DISC_VAR_UV2
+                and hf_ratio > self._SW_DISC_HF_THR
+            )
+        else:
+            self._disconnected_sw = False
+
+        if self._disconnected_sw:
+            self._score = 0
+            self._label = "invalid"
+            self._detail = {
+                "lo_score": lo_score, "disconnected_sw": True,
+                "var_score": s_var, "sfm_score": s_sfm, "drift_score": s_drift,
+            }
+            return 0
 
         total = int(np.clip(lo_score + s_var + s_sfm + s_drift, 0, 100))
 
@@ -148,6 +181,17 @@ class ContactQualityEstimator:
     def is_good(self)  -> bool: return self._score >= 60
     @property
     def detail(self) -> dict: return dict(self._detail)
+
+    def _hf_ratio(self, epoch_ac: np.ndarray) -> float:
+        """Ratio P(20-45 Hz) / P(1-45 Hz) — élevé pour signal flottant/bruit."""
+        try:
+            f, psd = scipy.signal.welch(
+                epoch_ac, self.fs, nperseg=min(self.fs, len(epoch_ac)))
+            p_hf    = float(np.trapz(psd[(f >= 20.0) & (f <= 45.0)], f[(f >= 20.0) & (f <= 45.0)]))
+            p_total = float(np.trapz(psd[(f >= 1.0)  & (f <= 45.0)], f[(f >= 1.0)  & (f <= 45.0)])) + 1e-30
+            return p_hf / p_total
+        except Exception:
+            return 0.0
 
     def _score_variance(self, epoch_ac: np.ndarray) -> int:
         v = float(np.var(epoch_ac))
@@ -219,19 +263,16 @@ class ArtifactDetector:
           Urigüen & Garcia-Zapirain 2015
     """
 
-    FLAT_LINE_STD_UV    = 0.5
-    # SEUIL DE DÉBOGAGE — remettre à 500.0 µV une fois le signal calibré proprement.
-    # Valeur normale EEG avec électrodes gel : 500 µV.
-    # Valeur debug (électrodes sèches / test sans tête) : 5000 µV.
-    EXTREME_PEAK_UV     = 5000.0
+    FLAT_LINE_STD_UV    = 0.3    # assoupli 0.5 → 0.3 µV (électrode sèche)
+    EXTREME_PEAK_UV     = 800.0  # assoupli 500 → 800 µV (artefacts transitoires)
     HIGH_RMS_MAD_FACTOR = 5.0
 
     BLINK_AMP_UV      = 150.0
     BLINK_KURTOSIS    = 4.0
     BLINK_DELTA_ALPHA = 2.5
 
-    EMG_SUSPECT_THR = 0.20
-    EMG_REJECT_THR  = 0.40
+    EMG_SUSPECT_THR = 0.30   # assoupli 0.20 → 0.30
+    EMG_REJECT_THR  = 0.55   # assoupli 0.40 → 0.55 (signal brut avant BP filter)
 
     CAL_DURATION_S = 60
     CAL_MIN_S      = 30

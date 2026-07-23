@@ -1,8 +1,10 @@
 """
 NeuroCap — Routes Media
-GET /api/media/list          → liste des assets feedback depuis table medias
-GET /api/media/illusions     → illusions optiques (images Supabase)
-GET /api/media/features      → features extraites (Feedback_METADATA CSVs) par filename
+GET /api/media/list                       → liste des assets feedback depuis table medias
+GET /api/media/illusions                  → illusions optiques (images Supabase)
+GET /api/media/illusions/internal         → illusions HTML internes (Feedback_METADATA)
+GET /api/media/illusions/html/{filename}  → contenu HTML d'une illusion interne
+GET /api/media/features                   → features extraites (Feedback_METADATA CSVs) par filename
 """
 
 import csv
@@ -11,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from supabase import AsyncClient
 
@@ -24,6 +27,7 @@ _optional_bearer = HTTPBearer(auto_error=False)
 
 # ── Load Feedback_METADATA CSVs into memory once at import time ───────────────
 _FEATURES: dict[str, dict] = {}
+_ILLUSIONS_INTERNAL: list[dict] = []
 
 def _load_features_csv():
     project_root = Path(__file__).parents[4]
@@ -48,6 +52,23 @@ def _load_features_csv():
             logger.info("Chargé %s (%d entrées)", name, sum(1 for k in _FEATURES))
         except Exception as e:
             logger.error("Erreur lecture %s : %s", name, e)
+
+    # Charger illusions_metadata.csv séparément (type interne)
+    ill_path = meta_dir / "illusions_metadata.csv"
+    if ill_path.exists():
+        try:
+            with open(ill_path, newline="", encoding="utf-8") as f:
+                for row in csv.DictReader(f):
+                    entry = dict(row)
+                    fname = entry.get("filename", "").strip()
+                    if fname:
+                        _FEATURES[fname] = entry
+                        _ILLUSIONS_INTERNAL.append(entry)
+            logger.info("Chargé illusions_metadata.csv (%d illusions)", len(_ILLUSIONS_INTERNAL))
+        except Exception as e:
+            logger.error("Erreur lecture illusions_metadata.csv : %s", e)
+    else:
+        logger.warning("illusions_metadata.csv introuvable : %s", ill_path)
 
 _load_features_csv()
 
@@ -141,6 +162,62 @@ async def get_illusions(
         .execute()
     )
     return resp.data or []
+
+
+@router.get("/illusions/internal")
+async def get_internal_illusions(
+    eeg_state: Optional[str] = Query(None, description="stress | concentration | focus | relax | neutral"),
+    _creds: Optional[HTTPAuthorizationCredentials] = Depends(_optional_bearer),
+):
+    """
+    Retourne toutes les illusions HTML internes (30 au total), triées par pertinence EEG.
+    Pour stress : les illusions transition/relax (non contre-indiquées) passent en premier.
+    Toutes les illusions restent accessibles quel que soit l'état.
+    """
+    import random
+    pool = list(_ILLUSIONS_INTERNAL)
+    if not pool:
+        return []
+
+    if eeg_state in ("stress",):
+        # Pour stress : mettre transition/relax en premier, exclure contre-indiquées du début
+        priority = [
+            ill for ill in pool
+            if ill.get("target_state") in ("transition", "relax")
+            and ill.get("contre_indique_stress", "False").lower() != "true"
+        ]
+        rest = [ill for ill in pool if ill not in priority]
+        random.shuffle(priority)
+        random.shuffle(rest)
+        pool = priority + rest
+    else:
+        random.shuffle(pool)
+
+    return pool
+
+
+@router.get("/illusions/html/{filename}")
+async def get_illusion_html(filename: str):
+    """
+    Sert le contenu HTML brut d'une illusion interne.
+    Le filename doit correspondre exactement à une entrée de illusions_metadata.csv.
+    """
+    # Validation : seuls les fichiers .html listés dans _ILLUSIONS_INTERNAL
+    known = {ill.get("filename", "") for ill in _ILLUSIONS_INTERNAL}
+    if filename not in known:
+        raise HTTPException(status_code=404, detail=f"Illusion inconnue : {filename}")
+
+    project_root = Path(__file__).parents[4]
+    html_path = project_root / "Feedback_METADATA" / "illusions" / filename
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail=f"Fichier HTML introuvable : {filename}")
+
+    try:
+        content = html_path.read_text(encoding="utf-8")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erreur lecture HTML : {exc}")
+
+    return HTMLResponse(content=content, media_type="text/html")
 
 
 @router.get("/features")

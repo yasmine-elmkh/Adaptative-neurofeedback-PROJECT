@@ -14,6 +14,7 @@ import AdminPanel         from './pages/AdminPanel'
 import TherapistDashboard      from './pages/TherapistDashboard'
 import TherapistPatientDetail  from './pages/TherapistPatientDetail'
 import EEGSelector             from './pages/EEGSelector'
+import EEGManualInput          from './pages/EEGManualInput'
 import EEGPage                 from './pages/EEGPage'
 import EEGLive                 from './pages/EEGLive'
 import EEGFile                 from './pages/EEGFile'
@@ -131,13 +132,15 @@ export default function App() {
           <Route path="/assistant"    element={<Assistant />} />
           <Route path="/profile"      element={<Profile />} />
 
-          {/* EEG — tabs live / upload */}
+          {/* EEG — sélecteur de mode + tabs */}
+          <Route path="/eeg-selector"     element={<EEGSelector />} />
           <Route path="/eeg"              element={<EEGPage tab="live" />} />
           <Route path="/eeg/live"         element={<EEGPage tab="live" />} />
           <Route path="/eeg/upload"       element={<EEGPage tab="upload" />} />
           {/* Rétro-compatibilité anciens liens */}
           <Route path="/eeg-live"         element={<EEGPage tab="live" />} />
           <Route path="/eeg-file"         element={<EEGPage tab="upload" />} />
+          <Route path="/eeg-manual"       element={<EEGManualInput />} />
           <Route path="/electrode-guide"  element={<ElectrodeGuide />} />
           <Route path="/feedback"         element={<FeedbackPage />} />
           <Route path="/feedback/session" element={<FeedbackSession />} />

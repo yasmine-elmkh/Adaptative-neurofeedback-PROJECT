@@ -337,7 +337,9 @@ export default function EEGFile() {
         // Silencieux si table non créée — le résultat s'affiche quand même
       }
     } catch (e) {
-      setError(e?.response?.data?.detail || e.message || 'Erreur lors de l\'analyse')
+      const data = e?.response?.data
+      const detail = typeof data === 'object' ? data?.detail : data
+      setError(detail || e.message || 'Erreur lors de l\'analyse')
     } finally {
       setLoading(false)
       setProgress('')
@@ -538,64 +540,6 @@ export default function EEGFile() {
             fs={result.fs}
             signal_quality={result.signal_quality ?? 'moyenne'}
           />
-
-          {/* ── Carte CTA Neurofeedback ── */}
-          {(() => {
-            const s      = result.summary ?? {}
-            const dom    = s.dominant_state ?? 'uncertain'
-            const conf   = Math.round((s.mean_confidence ?? 0) * 100)
-            const domMeta = ML_STATE[dom] ?? ML_STATE.uncertain
-
-            const launchFeedback = () => {
-              const accepted = (result.epochs ?? []).filter(e => !e.ml_prediction?.uncertain)
-              const avg = key => {
-                const vals = accepted.map(e => e.features?.[key] ?? 0).filter(v => v > 0)
-                return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 0
-              }
-              navigate('/feedback/session', {
-                state: {
-                  eeg_state:                 dom,
-                  classification_confidence:  s.mean_confidence ?? 0,
-                  features_snapshot: {
-                    rel_alpha:   avg('rel_alpha'),
-                    rel_beta:    avg('rel_beta'),
-                    rel_theta:   avg('rel_theta'),
-                    theta_beta:  avg('theta_beta'),
-                    engagement:  avg('engagement'),
-                    higuchi_fd:  avg('higuchi_fd'),
-                    stress_idx:  avg('stress_idx'),
-                    rms_uv:      avg('rms_uv'),
-                  },
-                },
-              })
-            }
-
-            return (
-              <div className={`card p-6 flex items-center gap-5 flex-wrap border-2 ${domMeta.border} ${domMeta.bg}`}>
-                <div className="w-14 h-14 rounded-2xl bg-nc-accent/15 flex items-center justify-center shrink-0">
-                  <Sparkles className="w-7 h-7 text-nc-accent" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-base font-bold text-nc-text">Obtenir un neurofeedback personnalisé</p>
-                  <p className="text-sm text-nc-muted mt-1 leading-relaxed">
-                    État dominant détecté : <span className={`font-semibold ${domMeta.color}`}>{domMeta.label}</span>
-                    {' '}({conf}% de confiance) — le système va recommander le feedback adapté à vos features EEG,{' '}
-                    justifier son choix et vous guider pas à pas.
-                  </p>
-                  <p className="text-xs text-nc-muted/70 mt-1">
-                    Jeux · Images · Vidéos · Audio · Respiration guidée — tous personnalisés selon votre profil
-                  </p>
-                </div>
-                <button
-                  onClick={launchFeedback}
-                  className="btn-primary flex items-center gap-2 px-6 py-3 rounded-xl font-semibold shrink-0"
-                >
-                  <Sparkles className="w-5 h-5" />
-                  Démarrer le neurofeedback →
-                </button>
-              </div>
-            )
-          })()}
 
           {result.epochs?.length > 0 && <EpochTable epochs={result.epochs} />}
         </div>

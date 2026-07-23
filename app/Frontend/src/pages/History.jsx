@@ -124,7 +124,7 @@ export default function History() {
             </div>
             <h3 className="font-semibold text-nc-text">{t('history.empty')}</h3>
             <p className="text-nc-muted text-sm">{t('history.empty_sub')}</p>
-            <button className="btn-primary mt-1" onClick={() => navigate('/session/new')}>
+            <button className="btn-primary mt-1" onClick={() => navigate('/session/setup')}>
               {t('dashboard.start_session')}
             </button>
           </div>

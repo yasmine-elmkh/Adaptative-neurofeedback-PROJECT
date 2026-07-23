@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Radio, FileText, ArrowRight, Zap, Brain, BarChart3, Clock,
   Wifi, ChevronDown, ChevronUp, BookOpen, CheckCircle2, AlertTriangle,
-  Info, ChevronRight,
+  Info, ChevronRight, PenLine, Layers, Sparkles,
 } from 'lucide-react'
 
 /* ── Schéma SVG de la tête avec positions 10-20 ── */
@@ -322,13 +322,13 @@ export default function EEGSelector() {
         </div>
         <h1 className="text-3xl font-bold text-nc-text">Analyse EEG</h1>
         <p className="text-base text-nc-muted max-w-lg mx-auto">
-          Choisissez votre mode d'analyse : signal temps réel avec le casque NeuroCap,
-          ou classification d'un fichier EEG existant.
+          Choisissez votre mode d'analyse : signal temps réel, classification d'un fichier,
+          ou exploration manuelle du système de recommandation.
         </p>
       </div>
 
       {/* ── Cartes de choix ── */}
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid md:grid-cols-3 gap-6">
 
         {/* Carte 1 — Live Hardware */}
         <button
@@ -400,6 +400,42 @@ export default function EEGSelector() {
 
           <div className="flex items-center gap-2 text-purple-400 font-semibold text-sm pt-1">
             Choisir un fichier
+            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+          </div>
+        </button>
+
+        {/* Carte 3 — Saisie manuelle */}
+        <button
+          onClick={() => navigate('/eeg-manual')}
+          className="card p-8 text-start space-y-5 border-nc-border hover:border-amber-400/40
+                     hover:bg-amber-500/5 transition-all duration-200 group cursor-pointer"
+        >
+          <div className="w-14 h-14 rounded-2xl bg-amber-500/15 flex items-center justify-center
+                          group-hover:scale-110 transition-transform duration-200">
+            <PenLine className="w-7 h-7 text-amber-400" />
+          </div>
+
+          <div>
+            <h2 className="text-xl font-bold text-nc-text">Saisie Manuelle</h2>
+            <p className="text-sm text-nc-muted mt-1">Exploration sans casque — mode démo</p>
+          </div>
+
+          <ul className="space-y-2.5">
+            {[
+              [Brain,    'Sélection manuelle de l\'état EEG'],
+              [Sparkles, 'Recommandations neurophysiologiques'],
+              [Layers,   'Audio · Images · Illusions · Jeux'],
+              [Zap,      'Aucun matériel requis'],
+            ].map(([Icon, text]) => (
+              <li key={text} className="flex items-center gap-2 text-sm text-nc-muted">
+                <Icon className="w-4 h-4 text-amber-400 shrink-0" />
+                {text}
+              </li>
+            ))}
+          </ul>
+
+          <div className="flex items-center gap-2 text-amber-400 font-semibold text-sm pt-1">
+            Explorer le feedback
             <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </div>
         </button>

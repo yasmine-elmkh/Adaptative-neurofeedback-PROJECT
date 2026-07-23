@@ -12,10 +12,11 @@
  */
 
 // Types autorisés par palier (cohérent avec EEGFeedbackMode)
+// illusion = illusions optiques HTML internes (Feedback_METADATA/illusions/)
 const PALIER_ALLOWED = {
   1: ['breathing', 'audio'],
   2: ['breathing', 'audio', 'image', 'video'],
-  3: ['breathing', 'audio', 'image', 'video', 'game'],
+  3: ['breathing', 'audio', 'image', 'video', 'game', 'illusion'],
   4: ['breathing', 'audio', 'image'],
 }
 
@@ -30,14 +31,27 @@ function applyPalierConstraint(candidate, palier) {
 
   // Remplacer par le meilleur équivalent autorisé
   if (candidate.type === 'game') {
-    // Jeu → image ou audio selon l'état
+    // Jeu → illusion (si disponible) ou image ou audio selon le palier
+    const alt = allowed.includes('illusion') ? 'illusion'
+              : allowed.includes('image')    ? 'image'
+              : 'audio'
+    return {
+      ...candidate,
+      type: alt,
+      subtype: null,
+      reason: candidate.reason +
+        ` (Jeu non disponible au Palier ${palier} — feedback ${alt} sélectionné à la place.)`,
+    }
+  }
+  if (candidate.type === 'illusion') {
+    // Illusion → image ou audio si non autorisée
     const alt = allowed.includes('image') ? 'image' : 'audio'
     return {
       ...candidate,
       type: alt,
       subtype: alt === 'image' ? 'static' : null,
       reason: candidate.reason +
-        ` (Jeu non disponible au Palier ${palier} — feedback ${alt} sélectionné à la place.)`,
+        ` (Illusion non disponible au Palier ${palier} — feedback ${alt} sélectionné.)`,
     }
   }
   if (candidate.type === 'video') {
@@ -142,6 +156,20 @@ export function recommendFeedback(eegState, features = {}, confidence = 0, palie
       }, palier)
     }
 
+    // Illusion figure-fond ou géométrique pour engagement cortical soutenu
+    if (alpha > 0.20 && beta > 0.22) {
+      return applyPalierConstraint({
+        type:    'illusion',
+        subtype: null,
+        reason:
+          `État ${stateLabel} · Alpha (${pct(alpha)}) + Beta (${pct(beta)}) co-actifs : engagement cortical soutenu sans surcharge. ` +
+          `${featureSummary()}. ` +
+          `Une illusion optique (distorsion / figure-fond) sollicite le cortex pariétal et préfrontal de façon contrôlée, renforçant la flexibilité attentionnelle.`,
+        guide:
+          "Fixe l'illusion sans forcer. Laisse ton cerveau percevoir les deux interprétations naturellement — c'est cet effort doux qui entraîne la plasticité.",
+      }, palier)
+    }
+
     if (alpha > 0.28 && beta > 0.20) {
       return applyPalierConstraint({
         type:    'image',
@@ -168,6 +196,20 @@ export function recommendFeedback(eegState, features = {}, confidence = 0, palie
   }
 
   // ── 4. Incertain / neutre ─────────────────────────────────────────────────
+  // Illusion de transition (mouvement perçu léger) pour engager progressivement
+  if (palier >= 3) {
+    return applyPalierConstraint({
+      type:    'illusion',
+      subtype: null,
+      reason:
+        `État incertain ou neutre (confiance ${Math.round(conf * 100)}%). ` +
+        `${featureSummary()}. ` +
+        `Une illusion optique de transition engage le cortex visuel passivement, aidant le système à cerner ton profil EEG sans sollicitation cognitive active.`,
+      guide:
+        "Regarde simplement. Aucun effort requis — laisse l'image faire son effet sur ton cerveau.",
+    }, palier)
+  }
+
   return applyPalierConstraint({
     type:    'game',
     subtype: 'puzzle',
@@ -189,4 +231,42 @@ export function stateGuideText(eegState) {
     return "Ton cerveau est en état actif. Engage-toi dans le contenu proposé avec une attention détendue. Ni trop tendu, ni distrait."
   }
   return "Prends un moment pour t'installer confortablement. Quelques respirations profondes avant de commencer."
+}
+
+/**
+ * Guide contextuel pour un type de média donné selon l'état EEG.
+ * Utilisé dans le panneau de sélection manuelle.
+ */
+export function getMediaGuidance(mediaType, eegState) {
+  const guides = {
+    audio: {
+      stress:     "Sons < 70 BPM avec rythme binaural alpha/theta. Évitez les rythmes rapides (> 90 BPM).",
+      focus:      "Sons rythmés 70-100 BPM, rythme binaural bêta pour maintenir l'engagement.",
+      relax:      "Sons 60-80 BPM, rythme binaural alpha, enveloppe descendante.",
+      transition: "Sons neutres 60-80 BPM. Laissez le système adapter progressivement.",
+    },
+    image: {
+      stress:     "Images nature verte/bleue, faible saturation, horizon visible. Évitez rouge/orange.",
+      focus:      "Images bleues/grises, complexité modérée, haute luminosité.",
+      relax:      "Paysages naturels, saturation douce, présence d'horizon.",
+      transition: "Images neutres, peu de complexité visuelle.",
+    },
+    illusion: {
+      stress:     "Illusions douces uniquement (afterimage, couleur complémentaire). Évitez le mouvement perçu intense.",
+      focus:      "Illusions figure-fond ou distorsions géométriques — entraînent la flexibilité cognitive.",
+      relax:      "Illusions de mouvement lent ou afterimage. Durée : 20-35s.",
+      transition: "Illusions légères (intensité ≤ 3), durée courte. Idéal pour sortir du stress.",
+    },
+    game: {
+      stress:     "Jeux charge légère (1-2/5), récompense immédiate. Évitez les multi-tâches.",
+      focus:      "Jeux charge 3-4/5, attention focalisée ou divisée.",
+      relax:      "Jeux contemplatifs, charge 1-2/5, durée < 2 min.",
+      transition: "Jeux d'inhibition ou de mémoire, charge modérée (2-3/5).",
+    },
+  }
+
+  const stateKey = { stress: 'stress', stressed: 'stress', concentration: 'focus', focused: 'focus' }[eegState]
+    ?? (eegState === 'relax' ? 'relax' : 'transition')
+
+  return guides[mediaType]?.[stateKey] ?? "Sélection automatique selon votre état EEG."
 }

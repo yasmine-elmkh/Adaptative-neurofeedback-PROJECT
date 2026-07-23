@@ -8,7 +8,7 @@ const COLORS = {
   uncertain:     '#fbbf24',
 }
 
-export default function MiniEEGOscilloscope({ wsData, eegState, mlPrediction, features }) {
+export default function MiniEEGOscilloscope({ wsData, eegState, mlPrediction, features, compact = false, canvasHeight = 90, hideLabel = false }) {
   const canvasRef  = useRef(null)
   const bufferRef  = useRef([])
 
@@ -32,7 +32,8 @@ export default function MiniEEGOscilloscope({ wsData, eegState, mlPrediction, fe
     ctx.clearRect(0, 0, W, H)
 
     // Fond
-    ctx.fillStyle = 'rgba(15,17,23,0.6)'
+    ctx.clearRect(0, 0, W, H)
+    ctx.fillStyle = 'rgba(6,14,24,0.85)'
     ctx.fillRect(0, 0, W, H)
 
     if (buf.length < 2) return
@@ -79,32 +80,61 @@ export default function MiniEEGOscilloscope({ wsData, eegState, mlPrediction, fe
   }
   const stl = STATE_LABEL[mlPrediction?.state] ?? STATE_LABEL.neutral
 
+  if (compact) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className={`text-[10px] font-bold ${stl.color} shrink-0`}>{stl.label}</span>
+        <canvas
+          ref={canvasRef}
+          width={300} height={44}
+          className="flex-1 rounded-lg border border-nc-border/30"
+          style={{ imageRendering: 'pixelated', height: 44 }}
+        />
+        {conf != null && (
+          <span className="text-[10px] font-mono text-nc-muted shrink-0">{conf}%</span>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-2">
       {/* État actuel */}
-      <div className="flex items-center justify-between">
-        <span className={`text-xs font-bold ${stl.color}`}>{stl.label}</span>
-        {conf != null && <span className="text-xs font-mono text-nc-muted">{conf}%</span>}
-      </div>
+      {!hideLabel && (
+        <div className="flex items-center justify-between">
+          <span className={`text-xs font-bold ${stl.color}`}>{stl.label}</span>
+          {conf != null && <span className="text-xs font-mono text-nc-muted">{conf}%</span>}
+        </div>
+      )}
 
       {/* Oscilloscope */}
       <canvas
         ref={canvasRef}
-        width={200} height={90}
+        width={200} height={canvasHeight}
         className="w-full rounded-xl border border-nc-border/30"
-        style={{ imageRendering: 'pixelated' }}
+        style={{ imageRendering: 'pixelated', height: canvasHeight }}
       />
 
       {/* Features clés */}
-      <div className="space-y-1 text-[10px]">
+      <div className="space-y-1.5 text-[10px]">
         {[
-          ['Alpha', `${alpha}%`],
-          ['Beta',  `${beta}%`],
-          ['TBR',   tbr],
-        ].map(([k, v]) => (
-          <div key={k} className="flex justify-between">
-            <span className="text-nc-muted">{k}</span>
-            <span className="font-mono font-semibold text-nc-text">{v}</span>
+          { k: 'Alpha', v: alpha, raw: features?.rel_alpha  ?? 0, color: '#22d3ee', glow: 'rgba(34,211,238,0.6)'  },
+          { k: 'Beta',  v: beta,  raw: features?.rel_beta   ?? 0, color: '#fb923c', glow: 'rgba(251,146,60,0.6)'  },
+          { k: 'TBR',   v: tbr,   raw: Math.min((features?.theta_beta ?? 0) / 4, 1), color: '#a78bfa', glow: 'rgba(167,139,250,0.6)' },
+        ].map(({ k, v, raw, color, glow }) => (
+          <div key={k} className="space-y-0.5">
+            <div className="flex justify-between items-center">
+              <span className="font-semibold" style={{ color }}>{k}</span>
+              <span className="font-mono font-bold" style={{ color, textShadow: `0 0 8px ${glow}` }}>{v}</span>
+            </div>
+            <div className="h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
+              <div className="h-full rounded-full transition-all duration-700"
+                style={{
+                  width: `${Math.min(raw * 100, 100)}%`,
+                  background: `linear-gradient(90deg, ${color}aa, ${color})`,
+                  boxShadow: `0 0 6px ${glow}`,
+                }} />
+            </div>
           </div>
         ))}
       </div>

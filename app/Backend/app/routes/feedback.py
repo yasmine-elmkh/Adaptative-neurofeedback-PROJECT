@@ -261,12 +261,23 @@ async def start_feedback_session(
     current_user=Depends(get_current_user),
     db: AsyncClient = Depends(get_db),
 ):
-    """Crée une nouvelle session de feedback adaptative."""
-    # Récupérer le numéro de séance suivant
-    resp = await db.table("feedback_sessions").select("id").eq("patient_id", current_user["id"]).execute()
-    session_num = len(resp.data) + 1
+    """Crée une nouvelle session de feedback adaptative (idempotente)."""
+    # Numéro de séance = nombre de séances COMPLÉTÉES + 1
+    completed_resp = await db.table("feedback_sessions").select("id").eq("patient_id", current_user["id"]).eq("status", "completed").execute()
+    session_num = len(completed_resp.data) + 1
 
-    # Déterminer la phase selon le numéro de séance
+    # Réutiliser la session en cours si elle existe déjà pour ce numéro
+    existing_resp = await db.table("feedback_sessions").select("id,session_number,phase,palier,objective,status").eq("patient_id", current_user["id"]).eq("session_number", session_num).neq("status", "completed").execute()
+    if existing_resp.data:
+        existing = existing_resp.data[0]
+        return {
+            "session_id":     existing["id"],
+            "session_number": existing["session_number"],
+            "phase":          existing["phase"],
+            "palier":         existing["palier"],
+            "objective":      existing["objective"] or data.objective,
+        }
+
     if session_num <= 3:
         phase = "phase1"
     elif session_num <= 10:
@@ -274,7 +285,6 @@ async def start_feedback_session(
     else:
         phase = "phase3"
 
-    # Lire le palier depuis eeg_profiles
     palier = 1
     try:
         p = await db.table("eeg_profiles").select("palier").eq("user_id", current_user["id"]).execute()
@@ -288,25 +298,25 @@ async def start_feedback_session(
     now = datetime.now(timezone.utc).isoformat()
 
     new_session = {
-        "id": session_id,
-        "patient_id": current_user["id"],
+        "id":             session_id,
+        "patient_id":     current_user["id"],
         "session_number": session_num,
-        "phase": phase,
-        "palier": palier,
-        "objective": data.objective,
-        "status": "running",
-        "eeg_snapshot": data.eeg_snapshot,
-        "started_at": now,
-        "created_at": now,
+        "phase":          phase,
+        "palier":         palier,
+        "objective":      data.objective,
+        "status":         "running",
+        "eeg_snapshot":   data.eeg_snapshot,
+        "started_at":     now,
+        "created_at":     now,
     }
     await db.table("feedback_sessions").insert(new_session).execute()
 
     return {
-        "session_id": session_id,
+        "session_id":     session_id,
         "session_number": session_num,
-        "phase": phase,
-        "palier": palier,
-        "objective": data.objective,
+        "phase":          phase,
+        "palier":         palier,
+        "objective":      data.objective,
     }
 
 
@@ -526,9 +536,9 @@ async def end_feedback_session(
         eff_rate = data.items_efficaces / data.items_played
         score = int(eff_rate * 70 + (30 if session_success else 0))
 
-    # Mise à jour session dans Supabase
+    # Mise à jour session dans Supabase (pending_validation = en attente de validation patient)
     await db.table("feedback_sessions").update({
-        "status": "completed",
+        "status": "pending_validation",
         "completed_at": now,
         "score": score,
         "delta_alpha": data.delta_alpha_global,
@@ -579,6 +589,124 @@ async def _generate_and_broadcast_report(db: AsyncClient, session_id: str, sessi
         "report": report_text,
         "metrics": session_data,
     })
+
+
+@router.post("/sessions/{session_id}/send-therapist")
+async def send_session_to_therapist(
+    session_id: str,
+    current_user=Depends(get_current_user),
+    db: AsyncClient = Depends(get_db),
+):
+    """Envoie le rapport de la séance au thérapeute assigné au patient."""
+    s_resp = await db.table("feedback_sessions").select("*").eq("id", session_id).eq("patient_id", current_user["id"]).execute()
+    if not s_resp.data:
+        raise HTTPException(status_code=404, detail="Session introuvable")
+    session = s_resp.data[0]
+
+    # Récupérer l'email du thérapeute
+    therapist_email = None
+    therapist_name  = ""
+    try:
+        u_resp = await db.table("users").select("therapist_id,first_name,last_name").eq("id", current_user["id"]).maybe_single().execute()
+        if u_resp.data and u_resp.data.get("therapist_id"):
+            t_resp = await db.table("users").select("email,first_name,last_name").eq("id", u_resp.data["therapist_id"]).maybe_single().execute()
+            if t_resp.data:
+                therapist_email = t_resp.data.get("email")
+                therapist_name  = f"{t_resp.data.get('first_name','')} {t_resp.data.get('last_name','')}".strip()
+    except Exception:
+        pass
+
+    if not therapist_email:
+        return {"status": "no_therapist", "message": "Aucun thérapeute assigné — rapport non envoyé."}
+
+    patient_name = f"{current_user.get('first_name','')} {current_user.get('last_name','')}".strip() or current_user.get("email", "Patient")
+    score        = session.get("score") or 0
+    session_num  = session.get("session_number", 1)
+    report_text  = session.get("report_text") or "Rapport non disponible."
+
+    try:
+        from app.services.email_service import send_session_report_email
+        import asyncio as _asyncio
+        _asyncio.create_task(send_session_report_email(
+            to_email         = therapist_email,
+            first_name       = therapist_name or "Thérapeute",
+            session_number   = session_num,
+            score            = score,
+            success_rate     = session.get("session_success") and 1.0 or 0.0,
+            blocs            = [],
+            profile_type     = "B",
+            palier_before    = str(session.get("palier") or "P1"),
+            palier_after     = str(session.get("palier") or "P1"),
+            palier_reason    = f"Rapport séance {session_num} — Patient : {patient_name}",
+            next_date        = "",
+            acquisition_type = "eeg_live",
+            subjective_pre   = None,
+            subjective_post  = None,
+        ))
+    except Exception as e:
+        logger.warning("Envoi thérapeute échoué : %s", e)
+        return {"status": "error", "message": str(e)}
+
+    return {"status": "sent", "therapist_email": therapist_email}
+
+
+@router.get("/sessions/{session_id}/progress-pdf")
+async def download_session_progress_pdf(
+    session_id: str,
+    current_user=Depends(get_current_user),
+    db: AsyncClient = Depends(get_db),
+):
+    """Génère et retourne le PDF d'avancement de la séance."""
+    import io as _io
+    from fastapi.responses import StreamingResponse as _StreamingResponse
+
+    s_resp = await db.table("feedback_sessions").select("*").eq("id", session_id).eq("patient_id", current_user["id"]).execute()
+    if not s_resp.data:
+        raise HTTPException(status_code=404, detail="Session introuvable")
+    session = s_resp.data[0]
+
+    patient_name = f"{current_user.get('first_name','')} {current_user.get('last_name','')}".strip() or current_user.get("email", "Patient")
+
+    from app.services.consent_service import generate_session_progress_pdf
+    pdf_bytes = generate_session_progress_pdf(
+        patient_name   = patient_name,
+        session_number = session.get("session_number", 1),
+        phase          = session.get("phase", "phase1"),
+        palier         = session.get("palier") or 1,
+        score          = session.get("score") or 0,
+        delta_alpha    = session.get("delta_alpha") or 0.0,
+        delta_beta     = session.get("delta_beta") or 0.0,
+        items_played   = session.get("items_played") or 0,
+        items_efficaces= session.get("items_efficaces") or 0,
+        session_success= session.get("session_success") or False,
+        report_text    = session.get("report_text") or "",
+        completed_at   = session.get("completed_at") or "",
+    )
+
+    filename = f"NeuroCap_Seance{session.get('session_number',1)}_{patient_name.replace(' ','_')}.pdf"
+    return _StreamingResponse(
+        _io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/sessions/{session_id}/finalize")
+async def finalize_session(
+    session_id: str,
+    current_user=Depends(get_current_user),
+    db: AsyncClient = Depends(get_db),
+):
+    """Marque la séance comme complètement terminée (après envoi thérapeute + téléchargement PDF)."""
+    s_resp = await db.table("feedback_sessions").select("id,status,patient_id").eq("id", session_id).eq("patient_id", current_user["id"]).execute()
+    if not s_resp.data:
+        raise HTTPException(status_code=404, detail="Session introuvable")
+
+    await db.table("feedback_sessions").update({
+        "status": "completed",
+    }).eq("id", session_id).execute()
+
+    return {"status": "completed"}
 
 
 @router.post("/media-guide")

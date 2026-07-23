@@ -1,0 +1,34 @@
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+<title>Waterfall Illusion — NeuroCap</title><style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0a12;color:#e0e0ff;font-family:system-ui;display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:16px}
+h1{font-size:18px;font-weight:500;margin-bottom:4px;color:#a0b4ff}
+.d{font-size:12px;color:#5060a0;margin-bottom:8px}
+.b{display:inline-block;padding:3px 10px;border-radius:12px;background:#1a2060;border:1px solid #3040a0;font-size:11px;color:#80a0ff;margin-bottom:14px}
+canvas{border:1px solid #1a2040;border-radius:8px;max-width:100%}
+.ctrl{margin-top:16px;width:100%;max-width:540px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cg{background:#0d0e1a;border:1px solid #1a2040;border-radius:8px;padding:10px 12px}
+.cg label{font-size:11px;color:#5060a0;display:flex;justify-content:space-between;margin-bottom:5px}
+.cg label span{color:#a0b4ff;font-weight:500}
+input[type=range]{width:100%;accent-color:#4060ff;height:4px}
+.btns{margin-top:12px;display:flex;gap:10px}
+button{padding:8px 20px;border-radius:20px;border:1px solid #3040a0;background:#0d1030;color:#80a0ff;cursor:pointer;font-size:12px}
+</style></head><body>
+<h1>Waterfall Illusion</h1><p class="d">Regardez puis détournez les yeux</p><span class="b">⚡ Adaptation rétinienne V5</span>
+<canvas id="c" width="540" height="540"></canvas>
+<div class="ctrl"><div class="cg"><label>Vitesse <span id="spdV">3</span></label><input type="range" id="spd" min="0.5" max="10" step="0.5" value="3" oninput="document.getElementById('spdV').textContent=this.value"></div><div class="cg"><label>Colonnes <span id="ncV">8</span></label><input type="range" id="nc" min="3" max="16" step="1" value="8" oninput="document.getElementById('ncV').textContent=this.value"></div><div class="cg"><label>Contraste <span id="ctV">1</span></label><input type="range" id="ct" min="0.2" max="1" step="0.1" value="1" oninput="document.getElementById('ctV').textContent=this.value"></div><div class="cg"><label>Teinte <span id="hueV">210</span></label><input type="range" id="hue" min="0" max="360" step="10" value="210" oninput="document.getElementById('hueV').textContent=this.value"></div></div>
+<div class="btns"><button id="bp">⏸ Pause</button><button id="br">↺ Reset</button></div>
+<script>
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
+let running=true,frame=0;
+document.getElementById('bp').addEventListener('click',function(){running=!running;this.textContent=running?'⏸ Pause':'▶ Play';if(running)go();});
+document.getElementById('br').addEventListener('click',()=>frame=0);
+function gv(id){return parseFloat(document.getElementById(id).value);}
+const W=canvas.width,H=canvas.height;
+function draw(){ctx.fillStyle='#0a0a12';ctx.fillRect(0,0,W,H);
+const n=parseInt(gv('nc')),sp=gv('spd'),ct=gv('ct'),hue=gv('hue'),cw=W/n,t=frame*sp*0.05;
+for(let col=0;col<n;col++){const ph=col%2===0?t:-t,x=col*cw;
+for(let seg=0;seg<20;seg++){const y=((seg*H/20+ph*30)%H+H)%H,lum=(50+(seg/20)*40)*ct;
+ctx.fillStyle=`hsl(${hue},60%,${lum}%)`;ctx.fillRect(x+2,y,cw-4,H/20-2);}}}
+function go(){if(!running)return;frame++;draw();requestAnimationFrame(go);}go();
+</script></body></html>

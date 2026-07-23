@@ -291,7 +291,7 @@ async def analyze_file(
 
     try:
         from app.services.eeg.dsp.file_processor import read_edf, read_csv_txt, process_signal
-    except ImportError as e:
+    except Exception as e:
         raise HTTPException(500, detail=f"Module file_processor non disponible: {e}")
 
     try:
